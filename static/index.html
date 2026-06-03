@@ -310,14 +310,27 @@
                 if (response.ok) {
                     displayReview(data);
                 } else {
-                    resultDiv.innerHTML = `<div class="error"><strong>Error:</strong> ${data.detail || 'Unknown error occurred'}</div>`;
+                    displayError(data.detail || 'Unknown error occurred');
                 }
             } catch (error) {
-                resultDiv.innerHTML = `<div class="error"><strong>Network Error:</strong> ${error.message}</div>`;
+                displayError(`Network Error: ${error.message}`);
             } finally {
                 btn.disabled = false;
                 loading.style.display = 'none';
             }
+        }
+
+        function displayError(message) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '';
+            const box = document.createElement('div');
+            box.className = 'error';
+            const label = document.createElement('strong');
+            label.textContent = 'Error: ';
+            const text = document.createTextNode(message || 'Unknown error occurred');
+            box.appendChild(label);
+            box.appendChild(text);
+            resultDiv.appendChild(box);
         }
         
         function displayReview(data) {

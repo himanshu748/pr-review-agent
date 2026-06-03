@@ -1,6 +1,6 @@
 # AI PR Review Agent
 
-A sophisticated Pull Request Review Agent that leverages the power of Large Language Models (LLMs) to automatically review GitHub Pull Requests. Built with FastAPI and powered by Hugging Face's Inference API.
+A focused FastAPI app that fetches a GitHub pull request diff, sends a bounded review prompt to Hugging Face, and renders a structured review in a GitHub-style browser UI.
 
 ## Features
 
@@ -9,6 +9,7 @@ A sophisticated Pull Request Review Agent that leverages the power of Large Lang
 - **Clear Verdicts**: Provides a final "APPROVE" or "REQUEST CHANGES" verdict with a clear reason.
 - **Sleek UI**: A GitHub Dark Mode-inspired, fully responsive, single-page frontend.
 - **Asynchronous & Fast**: Built with FastAPI and `httpx` for non-blocking API requests.
+- **Safer Inputs**: Strict GitHub PR URL parsing, bounded request fields, capped file/diff payloads, and token-safe error messages.
 
 ## Prerequisites
 
@@ -63,8 +64,17 @@ Accepts a JSON payload to trigger the PR review process.
   {
     "pr_url": "https://github.com/owner/repo/pull/123",
     "github_token": "optional_token_string"
-  }
+}
   ```
+
+## Verification
+
+```bash
+python -m pytest
+python -m compileall agent.py github.py main.py tests
+```
+
+The tests cover PR URL validation, diff/file bounds, static UI serving, missing Hugging Face token behavior, and review payload normalization.
 
 ## Technology Stack
 

@@ -1,10 +1,59 @@
 import os
 import json
+from typing import Any
+
 from dotenv import load_dotenv
 from huggingface_hub import AsyncInferenceClient
 
 # Loads HF_TOKEN from .env using python-dotenv
 load_dotenv()
+
+
+REQUIRED_KEYS = {"summary", "issues", "suggestions", "verdict", "verdict_reason"}
+VALID_VERDICTS = {"APPROVE", "REQUEST CHANGES"}
+
+
+def normalize_review_payload(payload: Any) -> dict:
+    if not isinstance(payload, dict):
+        raise ValueError("LLM response must be a JSON object")
+    missing = REQUIRED_KEYS - set(payload)
+    if missing:
+        raise ValueError(f"LLM response missing required keys: {', '.join(sorted(missing))}")
+
+    verdict = str(payload.get("verdict", "")).upper().strip()
+    if verdict not in VALID_VERDICTS:
+        verdict = "REQUEST CHANGES"
+
+    issues = payload.get("issues")
+    if not isinstance(issues, list):
+        issues = []
+    normalized_issues = []
+    for item in issues[:25]:
+        if not isinstance(item, dict):
+            continue
+        severity = str(item.get("severity", "low")).lower()
+        if severity not in {"high", "medium", "low"}:
+            severity = "low"
+        normalized_issues.append(
+            {
+                "severity": severity,
+                "file": str(item.get("file", ""))[:240],
+                "comment": str(item.get("comment", ""))[:2000],
+            }
+        )
+
+    suggestions = payload.get("suggestions")
+    if not isinstance(suggestions, list):
+        suggestions = []
+
+    return {
+        "summary": str(payload.get("summary", ""))[:4000],
+        "issues": normalized_issues,
+        "suggestions": [str(item)[:1000] for item in suggestions[:20]],
+        "verdict": verdict,
+        "verdict_reason": str(payload.get("verdict_reason", ""))[:1000],
+    }
+
 
 async def review_pr(pr_data: dict) -> dict:
     hf_token = os.getenv("HF_TOKEN")
@@ -66,8 +115,8 @@ Do not include any markdown formatting like ```json or any other text before or 
         content = content.strip()
         
         review_result = json.loads(content)
-        return review_result
-    except json.JSONDecodeError as e:
-        return {"error": "Failed to parse JSON response from LLM.", "raw_content": content}
+        return normalize_review_payload(review_result)
+    except (json.JSONDecodeError, ValueError):
+        return {"error": "Failed to parse a valid JSON review from the LLM."}
     except Exception as e:
         return {"error": f"LLM error: {str(e)}"}

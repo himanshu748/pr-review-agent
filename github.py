@@ -1,15 +1,38 @@
 import re
+from urllib.parse import urlparse
+
 import httpx
 
-async def fetch_pr_data(pr_url: str, github_token: str = None) -> dict:
-    # Parses a GitHub PR URL to extract owner, repo, pr_number using regex
-    pattern = r"https?://github\.com/([^/]+)/([^/]+)/pull/(\d+)"
-    match = re.match(pattern, pr_url)
+
+MAX_FILES = 20
+MAX_DIFF_CHARS = 12_000
+REQUEST_TIMEOUT = 20.0
+PR_URL_PATTERN = re.compile(r"^/([^/]+)/([^/]+)/pull/(\d+)/?$")
+
+
+def parse_github_pr_url(pr_url: str) -> tuple[str, str, str]:
+    parsed = urlparse(pr_url.strip())
+    if parsed.scheme not in {"https", "http"} or parsed.netloc.lower() != "github.com":
+        raise ValueError(f"Invalid GitHub PR URL: {pr_url}")
+    match = PR_URL_PATTERN.match(parsed.path)
     if not match:
         raise ValueError(f"Invalid GitHub PR URL: {pr_url}")
-        
-    owner, repo, pr_number = match.groups()
-    
+    return match.groups()
+
+
+def github_error_message(response: httpx.Response, label: str) -> str:
+    try:
+        payload = response.json()
+        message = payload.get("message") if isinstance(payload, dict) else None
+    except ValueError:
+        message = None
+    safe_message = f": {message}" if message else ""
+    return f"Failed to fetch PR {label} from GitHub (HTTP {response.status_code}){safe_message}"
+
+
+async def fetch_pr_data(pr_url: str, github_token: str | None = None) -> dict:
+    owner, repo, pr_number = parse_github_pr_url(pr_url)
+
     headers = {"Accept": "application/vnd.github.v3+json"}
     if github_token:
         headers["Authorization"] = f"Bearer {github_token}"
@@ -17,24 +40,21 @@ async def fetch_pr_data(pr_url: str, github_token: str = None) -> dict:
     base_url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}"
     files_url = f"{base_url}/files"
     
-    # Calls https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number} for PR metadata
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=False) as client:
         pr_response = await client.get(base_url, headers=headers)
         if pr_response.status_code != 200:
-            raise ValueError(f"Failed to fetch PR metadata: {pr_response.text}")
+            raise ValueError(github_error_message(pr_response, "metadata"))
         pr_metadata = pr_response.json()
-        
-        # Calls the /files endpoint for changed files and diffs
+
         files_response = await client.get(files_url, headers=headers)
         if files_response.status_code != 200:
-            raise ValueError(f"Failed to fetch PR files: {files_response.text}")
+            raise ValueError(github_error_message(files_response, "files"))
         pr_files = files_response.json()
-        
+
     files_summary = []
     diff_patches = []
-    
-    # Process files (max 20 files)
-    for file_info in pr_files[:20]:
+
+    for file_info in pr_files[:MAX_FILES]:
         filename = file_info.get("filename", "")
         status = file_info.get("status", "")
         patch = file_info.get("patch", "")
@@ -43,11 +63,10 @@ async def fetch_pr_data(pr_url: str, github_token: str = None) -> dict:
         if patch:
             diff_patches.append(f"--- a/{filename}\n+++ b/{filename}\n{patch}")
             
-    # Concatenated patches, capped at 12000 chars
     diff = "\n\n".join(diff_patches)
-    if len(diff) > 12000:
-        diff = diff[:12000] + "\n... [Diff truncated]"
-        
+    if len(diff) > MAX_DIFF_CHARS:
+        diff = diff[:MAX_DIFF_CHARS] + "\n... [Diff truncated]"
+
     return {
         "title": pr_metadata.get("title", ""),
         "description": pr_metadata.get("body", ""),
