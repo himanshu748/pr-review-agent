@@ -9,7 +9,7 @@ A focused FastAPI app that fetches a GitHub pull request diff, sends a bounded r
 - **Clear Verdicts**: Provides a final "APPROVE" or "REQUEST CHANGES" verdict with a clear reason.
 - **Sleek UI**: A GitHub Dark Mode-inspired, fully responsive, single-page frontend.
 - **Asynchronous & Fast**: Built with FastAPI and `httpx` for non-blocking API requests.
-- **Safer Inputs**: Strict GitHub PR URL parsing, bounded request fields, capped file/diff payloads, and token-safe error messages.
+- **Safer Inputs**: Strict GitHub PR URL parsing, bounded request fields, capped file/diff payloads, bounded LLM prompt fields, and token-safe error messages.
 
 ## Prerequisites
 
@@ -75,6 +75,37 @@ python -m compileall agent.py github.py main.py tests
 ```
 
 The tests cover PR URL validation, diff/file bounds, static UI serving, missing Hugging Face token behavior, provider-error sanitization, and review payload normalization.
+
+Optional live smoke checks use local environment variables only and should never print token values:
+
+```bash
+python - <<'PY'
+from huggingface_hub import whoami
+print({"hf": "pass", "name": whoami().get("name")})
+PY
+```
+
+```bash
+python - <<'PY'
+import asyncio
+from agent import review_pr
+
+async def main():
+    result = await review_pr({
+        "title": "Tiny safety check",
+        "author": "local",
+        "description": "A tiny PR smoke test.",
+        "commits": 1,
+        "changed_files": 1,
+        "additions": 1,
+        "deletions": 0,
+        "diff": "--- a/demo.py\n+++ b/demo.py\n@@\n+print('hello')",
+    })
+    print({"hf_completion": "pass" if "error" not in result else result["error"]})
+
+asyncio.run(main())
+PY
+```
 
 ## Security Notes
 

@@ -1,7 +1,14 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from agent import LLM_PROVIDER_ERROR, normalize_review_payload, review_pr
+from agent import (
+    LLM_PROVIDER_ERROR,
+    MAX_DESCRIPTION_CHARS,
+    MAX_DIFF_CHARS,
+    MAX_TITLE_CHARS,
+    normalize_review_payload,
+    review_pr,
+)
 from github import INVALID_PR_URL_ERROR, fetch_pr_data, parse_github_pr_url
 from main import app
 
@@ -123,6 +130,53 @@ async def test_review_pr_sanitizes_provider_exception(monkeypatch):
 
     assert result == {"error": LLM_PROVIDER_ERROR}
     assert "hf_secret_token" not in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_review_pr_bounds_prompt_fields_before_hf_call(monkeypatch):
+    captured = {}
+
+    class Message:
+        content = """{
+            "summary": "ok",
+            "issues": [],
+            "suggestions": [],
+            "verdict": "APPROVE",
+            "verdict_reason": "safe"
+        }"""
+
+    class Choice:
+        message = Message()
+
+    class Response:
+        choices = [Choice()]
+
+    class Client:
+        async def chat_completion(self, **kwargs):
+            captured.update(kwargs)
+            return Response()
+
+    monkeypatch.setenv("HF_TOKEN", "test-token")
+    monkeypatch.setattr("agent.AsyncInferenceClient", lambda token: Client())
+
+    result = await review_pr(
+        {
+            "title": "T" * (MAX_TITLE_CHARS + 50),
+            "author": "alice",
+            "description": "D" * (MAX_DESCRIPTION_CHARS + 50),
+            "commits": 1,
+            "changed_files": 1,
+            "additions": 1,
+            "deletions": 0,
+            "diff": "X" * (MAX_DIFF_CHARS + 50),
+        }
+    )
+
+    user_prompt = captured["messages"][1]["content"]
+    assert result["verdict"] == "APPROVE"
+    assert "T" * (MAX_TITLE_CHARS + 1) not in user_prompt
+    assert "D" * (MAX_DESCRIPTION_CHARS + 1) not in user_prompt
+    assert "X" * (MAX_DIFF_CHARS + 1) not in user_prompt
 
 
 def test_homepage_serves_static_ui():

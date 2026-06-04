@@ -14,6 +14,14 @@ VALID_VERDICTS = {"APPROVE", "REQUEST CHANGES"}
 HF_TOKEN_MISSING_ERROR = "HF_TOKEN is not set in .env"
 LLM_JSON_ERROR = "Failed to parse a valid JSON review from the LLM."
 LLM_PROVIDER_ERROR = "LLM provider request failed."
+MAX_TITLE_CHARS = 300
+MAX_AUTHOR_CHARS = 120
+MAX_DESCRIPTION_CHARS = 2_000
+MAX_DIFF_CHARS = 12_000
+
+
+def bounded_text(value: Any, max_chars: int) -> str:
+    return str(value or "")[:max_chars]
 
 
 def normalize_review_payload(payload: Any) -> dict:
@@ -67,31 +75,7 @@ async def review_pr(pr_data: dict) -> dict:
     model = "Qwen/Qwen2.5-72B-Instruct"
     
     system_prompt = "You are a senior software engineer doing a thorough PR review."
-    
-    user_prompt = f"""Review the following Pull Request and return ONLY a JSON object.
-
-Title: {pr_data.get('title')}
-Author: {pr_data.get('author')}
-Description: {pr_data.get('description')}
-
-Stats:
-- Commits: {pr_data.get('commits')}
-- Changed files: {pr_data.get('changed_files')}
-- Additions: {pr_data.get('additions')}
-- Deletions: {pr_data.get('deletions')}
-
-Diff:
-{pr_data.get('diff')}
-
-You must return ONLY a JSON object with the following keys:
-- summary (string): what this PR does
-- issues (list of objects with keys: severity (string: "high/medium/low"), file (string), comment (string))
-- suggestions (list of strings)
-- verdict (string): "APPROVE" or "REQUEST CHANGES"
-- verdict_reason (string): one sentence why
-
-Do not include any markdown formatting like ```json or any other text before or after the JSON.
-"""
+    user_prompt = build_review_prompt(pr_data)
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -123,3 +107,30 @@ Do not include any markdown formatting like ```json or any other text before or 
         return {"error": LLM_JSON_ERROR}
     except Exception:
         return {"error": LLM_PROVIDER_ERROR}
+
+
+def build_review_prompt(pr_data: dict) -> str:
+    return f"""Review the following Pull Request and return ONLY a JSON object.
+
+Title: {bounded_text(pr_data.get('title'), MAX_TITLE_CHARS)}
+Author: {bounded_text(pr_data.get('author'), MAX_AUTHOR_CHARS)}
+Description: {bounded_text(pr_data.get('description'), MAX_DESCRIPTION_CHARS)}
+
+Stats:
+- Commits: {pr_data.get('commits')}
+- Changed files: {pr_data.get('changed_files')}
+- Additions: {pr_data.get('additions')}
+- Deletions: {pr_data.get('deletions')}
+
+Diff:
+{bounded_text(pr_data.get('diff'), MAX_DIFF_CHARS)}
+
+You must return ONLY a JSON object with the following keys:
+- summary (string): what this PR does
+- issues (list of objects with keys: severity (string: "high/medium/low"), file (string), comment (string))
+- suggestions (list of strings)
+- verdict (string): "APPROVE" or "REQUEST CHANGES"
+- verdict_reason (string): one sentence why
+
+Do not include any markdown formatting like ```json or any other text before or after the JSON.
+"""
