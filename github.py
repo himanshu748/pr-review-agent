@@ -9,16 +9,17 @@ import httpx
 MAX_FILES = 20
 MAX_DIFF_CHARS = 12_000
 REQUEST_TIMEOUT = 20.0
-PR_URL_PATTERN = re.compile(r"^/([^/]+)/([^/]+)/pull/(\d+)/?$")
+PR_URL_PATTERN = re.compile(r"^/([A-Za-z0-9.-]+)/([A-Za-z0-9._-]+)/pull/(\d+)/?$")
+INVALID_PR_URL_ERROR = "Invalid GitHub PR URL. Expected https://github.com/{owner}/{repo}/pull/{number}."
 
 
 def parse_github_pr_url(pr_url: str) -> tuple[str, str, str]:
     parsed = urlparse(pr_url.strip())
-    if parsed.scheme not in {"https", "http"} or parsed.netloc.lower() != "github.com":
-        raise ValueError(f"Invalid GitHub PR URL: {pr_url}")
+    if parsed.scheme != "https" or parsed.netloc.lower() != "github.com":
+        raise ValueError(INVALID_PR_URL_ERROR)
     match = PR_URL_PATTERN.match(parsed.path)
     if not match:
-        raise ValueError(f"Invalid GitHub PR URL: {pr_url}")
+        raise ValueError(INVALID_PR_URL_ERROR)
     return match.groups()
 
 

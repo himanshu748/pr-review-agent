@@ -48,8 +48,8 @@ A focused FastAPI app that fetches a GitHub pull request diff, sends a bounded r
    Open your browser and navigate to `http://127.0.0.1:8000`.
 
 3. **Review a PR:**
-   - Enter a valid GitHub PR URL (e.g., `https://github.com/fastapi/fastapi/pull/1`).
-   - Optionally, provide a GitHub token in the "Advanced Options" dropdown.
+   - Enter a valid HTTPS GitHub PR URL (e.g., `https://github.com/fastapi/fastapi/pull/1`).
+   - Optionally, provide a GitHub token in the "Advanced Options" dropdown. The token is sent only with that request and is not stored by the app.
    - Click **Review PR** and wait for the AI's analysis.
 
 ## API Endpoints
@@ -75,6 +75,12 @@ python -m compileall agent.py github.py main.py tests
 ```
 
 The tests cover PR URL validation, diff/file bounds, static UI serving, missing Hugging Face token behavior, provider-error sanitization, and review payload normalization.
+
+## Security Notes
+
+- Invalid PR URL errors are generic and do not echo user input, so accidental token-like strings in submitted URLs are not reflected back to the browser.
+- Only `https://github.com/{owner}/{repo}/pull/{number}` URLs are accepted.
+- Optional GitHub tokens are passed as Authorization headers only when provided and are not displayed in UI errors.
 
 ## Technology Stack
 

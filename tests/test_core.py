@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agent import LLM_PROVIDER_ERROR, normalize_review_payload, review_pr
-from github import fetch_pr_data, parse_github_pr_url
+from github import INVALID_PR_URL_ERROR, fetch_pr_data, parse_github_pr_url
 from main import app
 
 
@@ -17,15 +17,27 @@ def test_parse_github_pr_url_accepts_exact_pull_url():
 @pytest.mark.parametrize(
     "url",
     [
+        "http://github.com/fastapi/fastapi/pull/123",
         "https://github.com/fastapi/fastapi/issues/123",
         "https://evil.example.com/fastapi/fastapi/pull/123",
         "https://github.com/fastapi/fastapi/pull/not-a-number",
+        "https://github.com/owner with spaces/repo/pull/1",
         "file:///etc/passwd",
     ],
 )
 def test_parse_github_pr_url_rejects_non_pr_urls(url):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Invalid GitHub PR URL"):
         parse_github_pr_url(url)
+
+
+def test_parse_github_pr_url_does_not_echo_input():
+    secret_url = "https://github.com/owner/repo/pull/not-a-number?token=ghp_secret"
+
+    with pytest.raises(ValueError) as caught:
+        parse_github_pr_url(secret_url)
+
+    assert str(caught.value) == INVALID_PR_URL_ERROR
+    assert "ghp_secret" not in str(caught.value)
 
 
 @pytest.mark.asyncio
@@ -128,6 +140,19 @@ def test_review_schema_rejects_oversized_url():
     response = client.post("/review", json={"pr_url": "x" * 301})
 
     assert response.status_code == 422
+
+
+def test_review_rejects_bad_url_without_echoing_secret():
+    client = TestClient(app)
+
+    response = client.post(
+        "/review",
+        json={"pr_url": "https://github.com/owner/repo/pull/not-a-number?token=ghp_secret"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == INVALID_PR_URL_ERROR
+    assert "ghp_secret" not in response.text
 
 
 def test_review_returns_503_when_hf_token_missing(monkeypatch):
