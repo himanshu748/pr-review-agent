@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from agent import HF_TOKEN_MISSING_ERROR, review_pr
 from github import fetch_pr_data
@@ -33,6 +33,14 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 class PRRequest(BaseModel):
     pr_url: str = Field(..., min_length=1, max_length=300)
     github_token: Optional[str] = Field(default=None, max_length=200)
+
+    @field_validator("github_token")
+    @classmethod
+    def normalize_github_token(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
 
 @app.get("/")

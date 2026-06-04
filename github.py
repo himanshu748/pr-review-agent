@@ -37,8 +37,9 @@ async def fetch_pr_data(pr_url: str, github_token: str | None = None) -> dict:
     owner, repo, pr_number = parse_github_pr_url(pr_url)
 
     headers = {"Accept": "application/vnd.github.v3+json"}
-    if github_token:
-        headers["Authorization"] = f"Bearer {github_token}"
+    normalized_token = (github_token or "").strip()
+    if normalized_token:
+        headers["Authorization"] = f"Bearer {normalized_token}"
         
     base_url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}"
     files_url = f"{base_url}/files"

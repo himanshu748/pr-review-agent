@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agent import (
+    HF_TOKEN_MISSING_ERROR,
     LLM_PROVIDER_ERROR,
     MAX_DESCRIPTION_CHARS,
     MAX_DIFF_CHARS,
@@ -101,6 +102,72 @@ async def test_fetch_pr_data_bounds_files_and_diff(monkeypatch):
     assert "[Diff truncated]" in data["diff"]
 
 
+@pytest.mark.asyncio
+async def test_fetch_pr_data_ignores_blank_github_token(monkeypatch):
+    seen_headers = []
+
+    class Response:
+        status_code = 200
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, headers):
+            seen_headers.append(headers)
+            if url.endswith("/files"):
+                return Response([])
+            return Response({"title": "T", "user": {"login": "alice"}})
+
+    monkeypatch.setattr("github.httpx.AsyncClient", lambda **kwargs: Client())
+
+    await fetch_pr_data("https://github.com/owner/repo/pull/7", "   ")
+
+    assert all("Authorization" not in headers for headers in seen_headers)
+
+
+@pytest.mark.asyncio
+async def test_fetch_pr_data_strips_github_token(monkeypatch):
+    seen_headers = []
+
+    class Response:
+        status_code = 200
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, headers):
+            seen_headers.append(headers)
+            if url.endswith("/files"):
+                return Response([])
+            return Response({"title": "T", "user": {"login": "alice"}})
+
+    monkeypatch.setattr("github.httpx.AsyncClient", lambda **kwargs: Client())
+
+    await fetch_pr_data("https://github.com/owner/repo/pull/7", "  ghp_test  ")
+
+    assert seen_headers[0]["Authorization"] == "Bearer ghp_test"
+
+
 def test_normalize_review_payload_bounds_and_defaults():
     review = normalize_review_payload(
         {
@@ -132,6 +199,15 @@ async def test_review_pr_sanitizes_provider_exception(monkeypatch):
 
     assert result == {"error": LLM_PROVIDER_ERROR}
     assert "hf_secret_token" not in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_review_pr_treats_blank_hf_token_as_missing(monkeypatch):
+    monkeypatch.setenv("HF_TOKEN", "   ")
+
+    result = await review_pr({"title": "Demo", "diff": "+print('hello')"})
+
+    assert result == {"error": HF_TOKEN_MISSING_ERROR}
 
 
 @pytest.mark.asyncio
@@ -236,6 +312,38 @@ def test_review_returns_503_when_hf_token_missing(monkeypatch):
     )
 
     assert response.status_code == 503
+
+
+def test_review_normalizes_blank_request_github_token(monkeypatch):
+    captured = {}
+
+    async def fake_fetch_pr_data(pr_url, github_token=None):
+        captured["github_token"] = github_token
+        return {"title": "Demo", "author": "alice"}
+
+    async def fake_review_pr(pr_data):
+        return {
+            "summary": "ok",
+            "issues": [],
+            "suggestions": [],
+            "verdict": "APPROVE",
+            "verdict_reason": "safe",
+        }
+
+    monkeypatch.setattr("main.fetch_pr_data", fake_fetch_pr_data)
+    monkeypatch.setattr("main.review_pr", fake_review_pr)
+    client = TestClient(app)
+
+    response = client.post(
+        "/review",
+        json={
+            "pr_url": "https://github.com/owner/repo/pull/1",
+            "github_token": "   ",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["github_token"] is None
 
 
 def test_review_returns_502_for_provider_error(monkeypatch):

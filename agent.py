@@ -67,7 +67,7 @@ def normalize_review_payload(payload: Any) -> dict:
 
 
 async def review_pr(pr_data: dict) -> dict:
-    hf_token = os.getenv("HF_TOKEN")
+    hf_token = os.getenv("HF_TOKEN", "").strip()
     if not hf_token or hf_token == "your_huggingface_token_here":
         return {"error": HF_TOKEN_MISSING_ERROR}
         
