@@ -5,19 +5,32 @@ from typing import Any
 from dotenv import load_dotenv
 from huggingface_hub import AsyncInferenceClient
 
-# Loads HF_TOKEN from .env using python-dotenv
+# Loads local .env values when present; deployment env vars work normally too.
 load_dotenv()
 
 
 REQUIRED_KEYS = {"summary", "issues", "suggestions", "verdict", "verdict_reason"}
 VALID_VERDICTS = {"APPROVE", "REQUEST CHANGES"}
-HF_TOKEN_MISSING_ERROR = "HF_TOKEN is not set in .env"
+HF_TOKEN_MISSING_ERROR = "HF_TOKEN or HF_API_KEY is not configured."
 LLM_JSON_ERROR = "Failed to parse a valid JSON review from the LLM."
 LLM_PROVIDER_ERROR = "LLM provider request failed."
+DEFAULT_HF_MODEL = "Qwen/Qwen2.5-72B-Instruct"
 MAX_TITLE_CHARS = 300
 MAX_AUTHOR_CHARS = 120
 MAX_DESCRIPTION_CHARS = 2_000
 MAX_DIFF_CHARS = 12_000
+
+
+def clean_env_value(name: str) -> str:
+    return os.getenv(name, "").strip()
+
+
+def hf_token() -> str:
+    return clean_env_value("HF_TOKEN") or clean_env_value("HF_API_KEY")
+
+
+def hf_model() -> str:
+    return clean_env_value("HF_MODEL") or DEFAULT_HF_MODEL
 
 
 def bounded_text(value: Any, max_chars: int) -> str:
@@ -67,12 +80,12 @@ def normalize_review_payload(payload: Any) -> dict:
 
 
 async def review_pr(pr_data: dict) -> dict:
-    hf_token = os.getenv("HF_TOKEN", "").strip()
-    if not hf_token or hf_token == "your_huggingface_token_here":
+    token = hf_token()
+    if not token or token == "your_huggingface_token_here":
         return {"error": HF_TOKEN_MISSING_ERROR}
         
-    client = AsyncInferenceClient(token=hf_token)
-    model = "Qwen/Qwen2.5-72B-Instruct"
+    client = AsyncInferenceClient(token=token)
+    model = hf_model()
     
     system_prompt = "You are a senior software engineer doing a thorough PR review."
     user_prompt = build_review_prompt(pr_data)

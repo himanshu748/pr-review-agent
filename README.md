@@ -13,7 +13,7 @@ A focused FastAPI app that fetches a GitHub pull request diff, sends a bounded r
 
 ## Prerequisites
 
-- Python 3.8+
+- Python 3.10+
 - A Hugging Face account and API Token
 - A GitHub account and Personal Access Token (Optional, but recommended for higher rate limits and accessing private repositories)
 
@@ -33,8 +33,11 @@ A focused FastAPI app that fetches a GitHub pull request diff, sends a bounded r
 3. **Configure Environment Variables:**
    Create a `.env` file in the root directory of the project and add your API tokens:
    ```env
-   HF_TOKEN=your_huggingface_token_here
-   GITHUB_TOKEN=your_github_token_here_optional
+   HF_TOKEN=
+   # Optional aliases/settings:
+   HF_API_KEY=
+   HF_MODEL=Qwen/Qwen2.5-72B-Instruct
+   GITHUB_TOKEN=
    ```
 
 ## Usage
@@ -74,7 +77,7 @@ python -m pytest
 python -m compileall agent.py github.py main.py tests
 ```
 
-The tests cover PR URL validation, diff/file bounds, static UI serving, missing Hugging Face token behavior, provider-error sanitization, and review payload normalization.
+The tests cover PR URL validation, diff/file bounds, static UI serving, Hugging Face token/model configuration, provider-error sanitization, and review payload normalization.
 
 Optional live smoke checks use local environment variables only and should never print token values:
 
@@ -111,6 +114,7 @@ PY
 
 - Invalid PR URL errors are generic and do not echo user input, so accidental token-like strings in submitted URLs are not reflected back to the browser.
 - Only `https://github.com/{owner}/{repo}/pull/{number}` URLs are accepted.
+- `HF_TOKEN` or `HF_API_KEY` may be used for Hugging Face. `HF_MODEL` is optional and defaults to `Qwen/Qwen2.5-72B-Instruct`.
 - Optional GitHub tokens are passed as Authorization headers only when provided and are not displayed in UI errors.
 
 ## Technology Stack

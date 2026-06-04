@@ -9,6 +9,8 @@ from agent import (
     MAX_DESCRIPTION_CHARS,
     MAX_DIFF_CHARS,
     MAX_TITLE_CHARS,
+    hf_model,
+    hf_token,
     normalize_review_payload,
     review_pr,
 )
@@ -186,6 +188,19 @@ def test_normalize_review_payload_bounds_and_defaults():
     assert review["verdict"] == "REQUEST CHANGES"
 
 
+def test_hf_token_uses_hf_api_key_alias(monkeypatch):
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setenv("HF_API_KEY", "  hf_alias  ")
+
+    assert hf_token() == "hf_alias"
+
+
+def test_hf_model_uses_default_for_blank_env(monkeypatch):
+    monkeypatch.setenv("HF_MODEL", "   ")
+
+    assert hf_model() == "Qwen/Qwen2.5-72B-Instruct"
+
+
 @pytest.mark.asyncio
 async def test_review_pr_sanitizes_provider_exception(monkeypatch):
     class Client:
@@ -204,10 +219,52 @@ async def test_review_pr_sanitizes_provider_exception(monkeypatch):
 @pytest.mark.asyncio
 async def test_review_pr_treats_blank_hf_token_as_missing(monkeypatch):
     monkeypatch.setenv("HF_TOKEN", "   ")
+    monkeypatch.delenv("HF_API_KEY", raising=False)
 
     result = await review_pr({"title": "Demo", "diff": "+print('hello')"})
 
     assert result == {"error": HF_TOKEN_MISSING_ERROR}
+
+
+@pytest.mark.asyncio
+async def test_review_pr_uses_hf_api_key_alias_and_configured_model(monkeypatch):
+    captured = {}
+
+    class Message:
+        content = """{
+            "summary": "ok",
+            "issues": [],
+            "suggestions": [],
+            "verdict": "APPROVE",
+            "verdict_reason": "safe"
+        }"""
+
+    class Choice:
+        message = Message()
+
+    class Response:
+        choices = [Choice()]
+
+    class Client:
+        async def chat_completion(self, **kwargs):
+            captured.update(kwargs)
+            return Response()
+
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setenv("HF_API_KEY", "  hf_alias  ")
+    monkeypatch.setenv("HF_MODEL", "custom/reviewer")
+
+    def client_factory(token):
+        captured["token"] = token
+        return Client()
+
+    monkeypatch.setattr("agent.AsyncInferenceClient", client_factory)
+
+    result = await review_pr({"title": "Demo", "diff": "+print('hello')"})
+
+    assert result["verdict"] == "APPROVE"
+    assert captured["token"] == "hf_alias"
+    assert captured["model"] == "custom/reviewer"
 
 
 @pytest.mark.asyncio
@@ -300,7 +357,7 @@ def test_review_returns_503_when_hf_token_missing(monkeypatch):
         return {"title": "Demo", "author": "alice"}
 
     async def fake_review_pr(pr_data):
-        return {"error": "HF_TOKEN is not set in .env"}
+        return {"error": HF_TOKEN_MISSING_ERROR}
 
     monkeypatch.setattr("main.fetch_pr_data", fake_fetch_pr_data)
     monkeypatch.setattr("main.review_pr", fake_review_pr)
