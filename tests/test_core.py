@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -38,13 +40,13 @@ def test_parse_github_pr_url_rejects_non_pr_urls(url):
 
 
 def test_parse_github_pr_url_does_not_echo_input():
-    secret_url = "https://github.com/owner/repo/pull/not-a-number?token=ghp_secret"
+    secret_url = "https://github.com/owner/repo/pull/not-a-number?token=redacted_secret"
 
     with pytest.raises(ValueError) as caught:
         parse_github_pr_url(secret_url)
 
     assert str(caught.value) == INVALID_PR_URL_ERROR
-    assert "ghp_secret" not in str(caught.value)
+    assert "redacted_secret" not in str(caught.value)
 
 
 @pytest.mark.asyncio
@@ -188,6 +190,14 @@ def test_homepage_serves_static_ui():
     assert "PR Review Agent" in response.text
 
 
+def test_static_ui_normalizes_class_bound_review_fields():
+    html = Path("static/index.html").read_text(encoding="utf-8")
+
+    assert "placeholder=\"ghp_" not in html
+    assert "function sanitizeSeverity" in html
+    assert "const sev = sanitizeSeverity(issue.severity);" in html
+
+
 def test_review_schema_rejects_oversized_url():
     client = TestClient(app)
 
@@ -201,12 +211,12 @@ def test_review_rejects_bad_url_without_echoing_secret():
 
     response = client.post(
         "/review",
-        json={"pr_url": "https://github.com/owner/repo/pull/not-a-number?token=ghp_secret"},
+        json={"pr_url": "https://github.com/owner/repo/pull/not-a-number?token=redacted_secret"},
     )
 
     assert response.status_code == 400
     assert response.json()["detail"] == INVALID_PR_URL_ERROR
-    assert "ghp_secret" not in response.text
+    assert "redacted_secret" not in response.text
 
 
 def test_review_returns_503_when_hf_token_missing(monkeypatch):

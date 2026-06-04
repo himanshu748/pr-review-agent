@@ -267,7 +267,7 @@
             <summary>Advanced Options</summary>
             <div class="form-group token-field">
                 <label for="github_token">GitHub Token (Optional)</label>
-                <input type="password" id="github_token" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="ghp_... (For private repos or rate limits)">
+                <input type="password" id="github_token" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Optional token for private repos or rate limits">
                 <small style="color: var(--text-muted); display: block; margin-top: 6px;">Used only for this request. Never stored by the app.</small>
             </div>
         </details>
@@ -368,7 +368,7 @@
             if (rev.issues && rev.issues.length > 0) {
                 html += `<div class="card"><h3>Issues Found</h3>`;
                 rev.issues.forEach(issue => {
-                    const sev = (issue.severity || 'low').toLowerCase();
+                    const sev = sanitizeSeverity(issue.severity);
                     const sevDisplay = sev.charAt(0).toUpperCase() + sev.slice(1);
                     html += `
                         <div class="issue ${sev}">
@@ -403,6 +403,11 @@
                  .replace(/>/g, "&gt;")
                  .replace(/"/g, "&quot;")
                  .replace(/'/g, "&#039;");
+        }
+
+        function sanitizeSeverity(value) {
+            const sev = (value || 'low').toString().toLowerCase();
+            return ['high', 'medium', 'low'].includes(sev) ? sev : 'low';
         }
     </script>
 </body>
