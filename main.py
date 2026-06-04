@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from agent import review_pr
+from agent import HF_TOKEN_MISSING_ERROR, review_pr
 from github import fetch_pr_data
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -52,7 +52,7 @@ async def create_review(request: PRRequest):
     review_result = await review_pr(pr_data)
     
     if "error" in review_result:
-        status_code = 503 if "HF_TOKEN" in review_result["error"] else 502
+        status_code = 503 if review_result["error"] == HF_TOKEN_MISSING_ERROR else 502
         raise HTTPException(status_code=status_code, detail=review_result["error"])
         
     return {

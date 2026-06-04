@@ -74,7 +74,7 @@ python -m pytest
 python -m compileall agent.py github.py main.py tests
 ```
 
-The tests cover PR URL validation, diff/file bounds, static UI serving, missing Hugging Face token behavior, and review payload normalization.
+The tests cover PR URL validation, diff/file bounds, static UI serving, missing Hugging Face token behavior, provider-error sanitization, and review payload normalization.
 
 ## Technology Stack
 

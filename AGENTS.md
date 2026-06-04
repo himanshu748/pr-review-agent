@@ -15,4 +15,5 @@
 - Keep static paths relative to the repository root; do not hardcode container/workspace paths.
 - Do not commit `__pycache__/`, `.env`, or generated local artifacts.
 - Never echo GitHub or Hugging Face token values in API errors, logs, or UI output.
+- Keep upstream LLM/provider failures generic at the API boundary; tests should prove raw exception text is not returned.
 - Keep PR review inputs bounded because full diffs and LLM prompts can grow quickly.

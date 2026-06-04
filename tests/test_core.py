@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from agent import normalize_review_payload
+from agent import LLM_PROVIDER_ERROR, normalize_review_payload, review_pr
 from github import fetch_pr_data, parse_github_pr_url
 from main import app
 
@@ -98,6 +98,21 @@ def test_normalize_review_payload_bounds_and_defaults():
     assert review["verdict"] == "REQUEST CHANGES"
 
 
+@pytest.mark.asyncio
+async def test_review_pr_sanitizes_provider_exception(monkeypatch):
+    class Client:
+        async def chat_completion(self, **kwargs):
+            raise RuntimeError("provider failed with hf_secret_token")
+
+    monkeypatch.setenv("HF_TOKEN", "test-token")
+    monkeypatch.setattr("agent.AsyncInferenceClient", lambda token: Client())
+
+    result = await review_pr({"title": "Demo", "diff": "+print('hello')"})
+
+    assert result == {"error": LLM_PROVIDER_ERROR}
+    assert "hf_secret_token" not in result["error"]
+
+
 def test_homepage_serves_static_ui():
     client = TestClient(app)
 
@@ -132,3 +147,23 @@ def test_review_returns_503_when_hf_token_missing(monkeypatch):
     )
 
     assert response.status_code == 503
+
+
+def test_review_returns_502_for_provider_error(monkeypatch):
+    async def fake_fetch_pr_data(pr_url, github_token=None):
+        return {"title": "Demo", "author": "alice"}
+
+    async def fake_review_pr(pr_data):
+        return {"error": LLM_PROVIDER_ERROR}
+
+    monkeypatch.setattr("main.fetch_pr_data", fake_fetch_pr_data)
+    monkeypatch.setattr("main.review_pr", fake_review_pr)
+    client = TestClient(app)
+
+    response = client.post(
+        "/review",
+        json={"pr_url": "https://github.com/owner/repo/pull/1"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == LLM_PROVIDER_ERROR

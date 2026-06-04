@@ -11,6 +11,9 @@ load_dotenv()
 
 REQUIRED_KEYS = {"summary", "issues", "suggestions", "verdict", "verdict_reason"}
 VALID_VERDICTS = {"APPROVE", "REQUEST CHANGES"}
+HF_TOKEN_MISSING_ERROR = "HF_TOKEN is not set in .env"
+LLM_JSON_ERROR = "Failed to parse a valid JSON review from the LLM."
+LLM_PROVIDER_ERROR = "LLM provider request failed."
 
 
 def normalize_review_payload(payload: Any) -> dict:
@@ -58,7 +61,7 @@ def normalize_review_payload(payload: Any) -> dict:
 async def review_pr(pr_data: dict) -> dict:
     hf_token = os.getenv("HF_TOKEN")
     if not hf_token or hf_token == "your_huggingface_token_here":
-        return {"error": "HF_TOKEN is not set in .env"}
+        return {"error": HF_TOKEN_MISSING_ERROR}
         
     client = AsyncInferenceClient(token=hf_token)
     model = "Qwen/Qwen2.5-72B-Instruct"
@@ -117,6 +120,6 @@ Do not include any markdown formatting like ```json or any other text before or 
         review_result = json.loads(content)
         return normalize_review_payload(review_result)
     except (json.JSONDecodeError, ValueError):
-        return {"error": "Failed to parse a valid JSON review from the LLM."}
-    except Exception as e:
-        return {"error": f"LLM error: {str(e)}"}
+        return {"error": LLM_JSON_ERROR}
+    except Exception:
+        return {"error": LLM_PROVIDER_ERROR}
