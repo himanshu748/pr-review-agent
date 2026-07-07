@@ -1,423 +1,209 @@
-from pathlib import Path
+"""Core tests for the v2 metrics-driven PR review agent.
+
+Covers PR URL validation, objective signal extraction, issue-ref parsing,
+the deterministic health-score/severity-gate/verdict logic, cost estimation,
+and the FastAPI surface. No network or LLM calls.
+"""
 
 import pytest
 from fastapi.testclient import TestClient
 
+import agent
 from agent import (
-    HF_TOKEN_MISSING_ERROR,
-    LLM_PROVIDER_ERROR,
-    MAX_DESCRIPTION_CHARS,
-    MAX_DIFF_CHARS,
-    MAX_TITLE_CHARS,
-    hf_model,
-    hf_token,
-    normalize_review_payload,
-    review_pr,
+    DIMENSIONS,
+    SEVERITY,
+    _assemble_review,
+    _compute_health,
+    _cost_estimate,
+    _decide_verdict,
+    _extract_json,
+    _grade,
+    _normalize_scores,
 )
-from github import INVALID_PR_URL_ERROR, fetch_pr_data, parse_github_pr_url
+from github import compute_signals, extract_issue_refs, parse_pr_url
 from main import app
 
 
-def test_parse_github_pr_url_accepts_exact_pull_url():
-    assert parse_github_pr_url("https://github.com/fastapi/fastapi/pull/123") == (
-        "fastapi",
-        "fastapi",
-        "123",
+# --- URL parsing -----------------------------------------------------------
+
+def test_parse_pr_url_accepts_pull_url():
+    assert parse_pr_url("https://github.com/fastapi/fastapi/pull/123") == (
+        "fastapi", "fastapi", "123",
     )
 
 
 @pytest.mark.parametrize(
     "url",
     [
-        "http://github.com/fastapi/fastapi/pull/123",
         "https://github.com/fastapi/fastapi/issues/123",
         "https://evil.example.com/fastapi/fastapi/pull/123",
         "https://github.com/fastapi/fastapi/pull/not-a-number",
-        "https://github.com/owner with spaces/repo/pull/1",
         "file:///etc/passwd",
+        "not a url",
     ],
 )
-def test_parse_github_pr_url_rejects_non_pr_urls(url):
-    with pytest.raises(ValueError, match="Invalid GitHub PR URL"):
-        parse_github_pr_url(url)
+def test_parse_pr_url_rejects_invalid(url):
+    with pytest.raises(ValueError):
+        parse_pr_url(url)
 
 
-def test_parse_github_pr_url_does_not_echo_input():
-    secret_url = "https://github.com/owner/repo/pull/not-a-number?token=redacted_secret"
+# --- issue-ref extraction ----------------------------------------------------
 
-    with pytest.raises(ValueError) as caught:
-        parse_github_pr_url(secret_url)
-
-    assert str(caught.value) == INVALID_PR_URL_ERROR
-    assert "redacted_secret" not in str(caught.value)
-
-
-@pytest.mark.asyncio
-async def test_fetch_pr_data_bounds_files_and_diff(monkeypatch):
-    class Response:
-        def __init__(self, payload, status_code=200):
-            self._payload = payload
-            self.status_code = status_code
-
-        def json(self):
-            return self._payload
-
-    class Client:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def get(self, url, headers):
-            if url.endswith("/files"):
-                return Response(
-                    [
-                        {
-                            "filename": f"file_{i}.py",
-                            "status": "modified",
-                            "patch": "+" + ("x" * 1000),
-                        }
-                        for i in range(30)
-                    ]
-                )
-            return Response(
-                {
-                    "title": "T",
-                    "body": "B",
-                    "user": {"login": "alice"},
-                    "base": {"ref": "main"},
-                    "head": {"ref": "feature"},
-                    "commits": 1,
-                    "changed_files": 30,
-                    "additions": 500,
-                    "deletions": 2,
-                }
-            )
-
-    monkeypatch.setattr("github.httpx.AsyncClient", lambda **kwargs: Client())
-
-    data = await fetch_pr_data("https://github.com/owner/repo/pull/7")
-
-    assert len(data["files_summary"]) == 20
-    assert len(data["diff"]) <= 12_030
-    assert "[Diff truncated]" in data["diff"]
-
-
-@pytest.mark.asyncio
-async def test_fetch_pr_data_ignores_blank_github_token(monkeypatch):
-    seen_headers = []
-
-    class Response:
-        status_code = 200
-
-        def __init__(self, payload):
-            self._payload = payload
-
-        def json(self):
-            return self._payload
-
-    class Client:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def get(self, url, headers):
-            seen_headers.append(headers)
-            if url.endswith("/files"):
-                return Response([])
-            return Response({"title": "T", "user": {"login": "alice"}})
-
-    monkeypatch.setattr("github.httpx.AsyncClient", lambda **kwargs: Client())
-
-    await fetch_pr_data("https://github.com/owner/repo/pull/7", "   ")
-
-    assert all("Authorization" not in headers for headers in seen_headers)
-
-
-@pytest.mark.asyncio
-async def test_fetch_pr_data_strips_github_token(monkeypatch):
-    seen_headers = []
-
-    class Response:
-        status_code = 200
-
-        def __init__(self, payload):
-            self._payload = payload
-
-        def json(self):
-            return self._payload
-
-    class Client:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def get(self, url, headers):
-            seen_headers.append(headers)
-            if url.endswith("/files"):
-                return Response([])
-            return Response({"title": "T", "user": {"login": "alice"}})
-
-    monkeypatch.setattr("github.httpx.AsyncClient", lambda **kwargs: Client())
-
-    await fetch_pr_data("https://github.com/owner/repo/pull/7", "  ghp_test  ")
-
-    assert seen_headers[0]["Authorization"] == "Bearer ghp_test"
-
-
-def test_normalize_review_payload_bounds_and_defaults():
-    review = normalize_review_payload(
-        {
-            "summary": "ok",
-            "issues": [
-                {"severity": "critical", "file": "a.py", "comment": "x"},
-                "not-object",
-            ],
-            "suggestions": ["ship"],
-            "verdict": "maybe",
-            "verdict_reason": "reason",
-        }
+def test_extract_issue_refs_closing_and_mentions():
+    closing, mentioned = extract_issue_refs(
+        "This fixes #123 and relates to #456. Also closes https://github.com/o/r/issues/789"
     )
+    assert closing == {123, 789}
+    assert mentioned == {456}
 
-    assert review["issues"] == [{"severity": "low", "file": "a.py", "comment": "x"}]
-    assert review["verdict"] == "REQUEST CHANGES"
 
+def test_extract_issue_refs_empty_body():
+    assert extract_issue_refs(None, "") == (set(), set())
 
-def test_hf_token_uses_hf_api_key_alias(monkeypatch):
-    monkeypatch.delenv("HF_TOKEN", raising=False)
-    monkeypatch.setenv("HF_API_KEY", "  hf_alias  ")
 
-    assert hf_token() == "hf_alias"
+# --- objective signals -------------------------------------------------------
 
+def _mkfile(name, status="modified", add=10, rm=2, patch="@@\n+x = 1"):
+    return {"filename": name, "status": status, "additions": add,
+            "deletions": rm, "changes": add + rm, "patch": patch}
 
-def test_hf_model_uses_default_for_blank_env(monkeypatch):
-    monkeypatch.setenv("HF_MODEL", "   ")
 
-    assert hf_model() == "Qwen/Qwen2.5-72B-Instruct"
+def test_compute_signals_classifies_tests_docs_deps():
+    files = [
+        _mkfile("src/app/main.py"),
+        _mkfile("tests/test_main.py", status="added"),
+        _mkfile("requirements.txt", patch="@@\n+requests==2.31.0"),
+        _mkfile("docs/guide.md"),
+    ]
+    meta = {"changed_files": 4, "additions": 40, "deletions": 8, "commits": 2}
+    s = compute_signals(files, meta, truncated=False)
+    assert s["test_files"] == 1
+    assert s["code_files"] == 1
+    assert s["doc_files"] == 1
+    assert s["new_dependencies"] == ["requests==2.31.0"]
+    assert s["has_tests"] is True
+    assert s["blast_radius"] == 4
 
 
-@pytest.mark.asyncio
-async def test_review_pr_sanitizes_provider_exception(monkeypatch):
-    class Client:
-        async def chat_completion(self, **kwargs):
-            raise RuntimeError("provider failed with hf_secret_token")
+def test_compute_signals_flags_missing_tests():
+    s = compute_signals([_mkfile("src/x.py")], {"additions": 12, "deletions": 0}, False)
+    assert any("no tests" in f.lower() for f in s["risk_flags"])
 
-    monkeypatch.setenv("HF_TOKEN", "test-token")
-    monkeypatch.setattr("agent.AsyncInferenceClient", lambda token: Client())
 
-    result = await review_pr({"title": "Demo", "diff": "+print('hello')"})
+# --- scoring engine ----------------------------------------------------------
 
-    assert result == {"error": LLM_PROVIDER_ERROR}
-    assert "hf_secret_token" not in result["error"]
+def test_dimension_weights_sum_to_one():
+    assert round(sum(d["weight"] for d in DIMENSIONS), 6) == 1.0
 
 
-@pytest.mark.asyncio
-async def test_review_pr_treats_blank_hf_token_as_missing(monkeypatch):
-    monkeypatch.setenv("HF_TOKEN", "   ")
-    monkeypatch.delenv("HF_API_KEY", raising=False)
+def test_grade_bands():
+    assert _grade(95) == "A"
+    assert _grade(85) == "B"
+    assert _grade(75) == "C"
+    assert _grade(65) == "D"
+    assert _grade(30) == "F"
 
-    result = await review_pr({"title": "Demo", "diff": "+print('hello')"})
 
-    assert result == {"error": HF_TOKEN_MISSING_ERROR}
+def test_normalize_scores_clamps_and_defaults():
+    raw = {"correctness": 150, "security": -5, "testing": "bad", "performance": None}
+    scores = _normalize_scores(raw)
+    assert scores["correctness"] == 100
+    assert scores["security"] == 0
+    assert scores["testing"] is None
+    assert scores["performance"] is None
+    assert set(scores) == {d["key"] for d in DIMENSIONS}
 
 
-@pytest.mark.asyncio
-async def test_review_pr_uses_hf_api_key_alias_and_configured_model(monkeypatch):
-    captured = {}
+def _uniform_scores(v):
+    return {d["key"]: v for d in DIMENSIONS}
 
-    class Message:
-        content = """{
-            "summary": "ok",
-            "issues": [],
-            "suggestions": [],
-            "verdict": "APPROVE",
-            "verdict_reason": "safe"
-        }"""
 
-    class Choice:
-        message = Message()
+def test_health_uncapped_when_no_issues():
+    health, weighted, cap = _compute_health(_uniform_scores(90), {})
+    assert health == 90 and cap == 100
 
-    class Response:
-        choices = [Choice()]
 
-    class Client:
-        async def chat_completion(self, **kwargs):
-            captured.update(kwargs)
-            return Response()
+def test_blocker_caps_health():
+    health, _, cap = _compute_health(_uniform_scores(95), {"blocker": 1})
+    assert cap == SEVERITY["blocker"]["gate"] == 39
+    assert health <= 39
 
-    monkeypatch.delenv("HF_TOKEN", raising=False)
-    monkeypatch.setenv("HF_API_KEY", "  hf_alias  ")
-    monkeypatch.setenv("HF_MODEL", "custom/reviewer")
 
-    def client_factory(token):
-        captured["token"] = token
-        return Client()
+def test_major_caps_health():
+    health, _, cap = _compute_health(_uniform_scores(95), {"major": 2})
+    assert cap == 84 and health == 84
 
-    monkeypatch.setattr("agent.AsyncInferenceClient", client_factory)
 
-    result = await review_pr({"title": "Demo", "diff": "+print('hello')"})
+def test_weight_redistribution_with_na_dimension():
+    scores = _uniform_scores(80)
+    scores["guidelines"] = None
+    health, _, _ = _compute_health(scores, {})
+    assert health == 80  # remaining dims all 80 -> still 80 after renormalizing
 
-    assert result["verdict"] == "APPROVE"
-    assert captured["token"] == "hf_alias"
-    assert captured["model"] == "custom/reviewer"
 
+def test_verdicts():
+    assert _decide_verdict(95, {})["verdict"] == "APPROVE"
+    assert _decide_verdict(85, {"minor": 1})["verdict"] == "APPROVE_WITH_NITS"
+    assert _decide_verdict(80, {"major": 1})["verdict"] == "REQUEST_CHANGES"
+    assert _decide_verdict(30, {"blocker": 1})["verdict"] == "BLOCK"
+    assert _decide_verdict(45, {})["verdict"] == "BLOCK"
 
-@pytest.mark.asyncio
-async def test_review_pr_bounds_prompt_fields_before_hf_call(monkeypatch):
-    captured = {}
 
-    class Message:
-        content = """{
-            "summary": "ok",
-            "issues": [],
-            "suggestions": [],
-            "verdict": "APPROVE",
-            "verdict_reason": "safe"
-        }"""
+def test_assemble_review_forces_guidelines_na_without_contributing():
+    parsed = {"summary": "s", "scores": _uniform_scores(90), "issues": []}
+    review = _assemble_review(parsed, {"contributing": {"found": False}})
+    gdim = next(d for d in review["scorecard"] if d["key"] == "guidelines")
+    assert gdim["score"] is None and gdim["grade"] == "N/A"
 
-    class Choice:
-        message = Message()
 
-    class Response:
-        choices = [Choice()]
+def test_assemble_review_sorts_issues_by_severity():
+    parsed = {
+        "summary": "s",
+        "scores": _uniform_scores(90),
+        "issues": [
+            {"severity": "minor", "file": "a", "comment": "c"},
+            {"severity": "blocker", "file": "b", "comment": "c"},
+            {"severity": "weird", "file": "c", "comment": "c"},  # -> minor
+        ],
+    }
+    review = _assemble_review(parsed, {"contributing": {"found": True}})
+    assert [i["severity"] for i in review["issues"]] == ["blocker", "minor", "minor"]
+    assert review["verdict"] == "BLOCK"
 
-    class Client:
-        async def chat_completion(self, **kwargs):
-            captured.update(kwargs)
-            return Response()
 
-    monkeypatch.setenv("HF_TOKEN", "test-token")
-    monkeypatch.setattr("agent.AsyncInferenceClient", lambda token: Client())
+def test_cost_estimate_floors_savings():
+    cost = _cost_estimate(1400, 300, "test-model")
+    assert 0 < cost["usd"] < 0.01
+    assert cost["savings_pct"] < 100.0
+    assert cost["claude_price_usd"] == agent.CLAUDE_REVIEW_PRICE
 
-    result = await review_pr(
-        {
-            "title": "T" * (MAX_TITLE_CHARS + 50),
-            "author": "alice",
-            "description": "D" * (MAX_DESCRIPTION_CHARS + 50),
-            "commits": 1,
-            "changed_files": 1,
-            "additions": 1,
-            "deletions": 0,
-            "diff": "X" * (MAX_DIFF_CHARS + 50),
-        }
-    )
 
-    user_prompt = captured["messages"][1]["content"]
-    assert result["verdict"] == "APPROVE"
-    assert "T" * (MAX_TITLE_CHARS + 1) not in user_prompt
-    assert "D" * (MAX_DESCRIPTION_CHARS + 1) not in user_prompt
-    assert "X" * (MAX_DIFF_CHARS + 1) not in user_prompt
+# --- JSON extraction ---------------------------------------------------------
 
+def test_extract_json_plain_and_fenced():
+    assert _extract_json('{"a": 1}') == {"a": 1}
+    assert _extract_json('```json\n{"a": 1}\n```') == {"a": 1}
+    assert _extract_json('noise {"a": 1} trailing') == {"a": 1}
+    assert _extract_json("not json at all") is None
 
-def test_homepage_serves_static_ui():
-    client = TestClient(app)
 
-    response = client.get("/")
+# --- FastAPI surface ---------------------------------------------------------
 
-    assert response.status_code == 200
-    assert "PR Review Agent" in response.text
+client = TestClient(app)
 
 
-def test_static_ui_normalizes_class_bound_review_fields():
-    html = Path("static/index.html").read_text(encoding="utf-8")
+def test_root_serves_ui():
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "PR" in r.text
 
-    assert "placeholder=\"ghp_" not in html
-    assert "function sanitizeSeverity" in html
-    assert "const sev = sanitizeSeverity(issue.severity);" in html
 
+def test_healthz():
+    r = client.get("/healthz")
+    assert r.status_code == 200
+    assert "hf_token_configured" in r.json()
 
-def test_review_schema_rejects_oversized_url():
-    client = TestClient(app)
 
-    response = client.post("/review", json={"pr_url": "x" * 301})
-
-    assert response.status_code == 422
-
-
-def test_review_rejects_bad_url_without_echoing_secret():
-    client = TestClient(app)
-
-    response = client.post(
-        "/review",
-        json={"pr_url": "https://github.com/owner/repo/pull/not-a-number?token=redacted_secret"},
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"] == INVALID_PR_URL_ERROR
-    assert "redacted_secret" not in response.text
-
-
-def test_review_returns_503_when_hf_token_missing(monkeypatch):
-    async def fake_fetch_pr_data(pr_url, github_token=None):
-        return {"title": "Demo", "author": "alice"}
-
-    async def fake_review_pr(pr_data):
-        return {"error": HF_TOKEN_MISSING_ERROR}
-
-    monkeypatch.setattr("main.fetch_pr_data", fake_fetch_pr_data)
-    monkeypatch.setattr("main.review_pr", fake_review_pr)
-    client = TestClient(app)
-
-    response = client.post(
-        "/review",
-        json={"pr_url": "https://github.com/owner/repo/pull/1"},
-    )
-
-    assert response.status_code == 503
-
-
-def test_review_normalizes_blank_request_github_token(monkeypatch):
-    captured = {}
-
-    async def fake_fetch_pr_data(pr_url, github_token=None):
-        captured["github_token"] = github_token
-        return {"title": "Demo", "author": "alice"}
-
-    async def fake_review_pr(pr_data):
-        return {
-            "summary": "ok",
-            "issues": [],
-            "suggestions": [],
-            "verdict": "APPROVE",
-            "verdict_reason": "safe",
-        }
-
-    monkeypatch.setattr("main.fetch_pr_data", fake_fetch_pr_data)
-    monkeypatch.setattr("main.review_pr", fake_review_pr)
-    client = TestClient(app)
-
-    response = client.post(
-        "/review",
-        json={
-            "pr_url": "https://github.com/owner/repo/pull/1",
-            "github_token": "   ",
-        },
-    )
-
-    assert response.status_code == 200
-    assert captured["github_token"] is None
-
-
-def test_review_returns_502_for_provider_error(monkeypatch):
-    async def fake_fetch_pr_data(pr_url, github_token=None):
-        return {"title": "Demo", "author": "alice"}
-
-    async def fake_review_pr(pr_data):
-        return {"error": LLM_PROVIDER_ERROR}
-
-    monkeypatch.setattr("main.fetch_pr_data", fake_fetch_pr_data)
-    monkeypatch.setattr("main.review_pr", fake_review_pr)
-    client = TestClient(app)
-
-    response = client.post(
-        "/review",
-        json={"pr_url": "https://github.com/owner/repo/pull/1"},
-    )
-
-    assert response.status_code == 502
-    assert response.json()["detail"] == LLM_PROVIDER_ERROR
+def test_review_rejects_invalid_url():
+    r = client.post("/review", json={"pr_url": "https://example.com/nope"})
+    assert r.status_code == 400

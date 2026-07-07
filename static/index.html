@@ -3,301 +3,450 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PR Review Agent</title>
+    <title>ReviewCheap — senior-grade PR reviews for pennies</title>
+    <meta name="description" content="Metrics-driven AI pull-request reviews grounded in your repo's CONTRIBUTING.md. Claude charges $25 per PR review — we do it with open models for less than a cent.">
     <style>
         :root {
             --bg-color: #0d1117;
             --card-bg: #161b22;
-            --text-main: #c9d1d9;
+            --card-bg-2: #10151c;
+            --text-main: #e6edf3;
             --text-muted: #8b949e;
             --border: #30363d;
             --btn-bg: #238636;
             --btn-hover: #2ea043;
             --btn-disabled: #1b4721;
             --input-bg: #010409;
-            
-            --high-sev: #f85149;
-            --high-bg: rgba(248, 81, 73, 0.1);
-            --med-sev: #d29922;
-            --med-bg: rgba(210, 153, 34, 0.1);
-            --low-sev: #58a6ff;
-            --low-bg: rgba(88, 166, 255, 0.1);
-            
+
+            --accent-1: #3fb950;
+            --accent-2: #58a6ff;
+
+            --grade-a: #3fb950;
+            --grade-b: #58a6ff;
+            --grade-c: #d29922;
+            --grade-d: #db6d28;
+            --grade-f: #f85149;
+
+            --sev-blocker: #da3633;
+            --sev-critical: #f85149;
+            --sev-major: #db6d28;
+            --sev-minor: #d29922;
+            --sev-info: #58a6ff;
+
             --approve: #3fb950;
-            --changes: #f85149;
+            --nits: #58a6ff;
+            --changes: #db6d28;
+            --block: #f85149;
         }
 
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
-            max-width: 900px; 
-            margin: 0 auto; 
-            padding: 20px; 
-            line-height: 1.6; 
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            line-height: 1.6;
             background-color: var(--bg-color);
             color: var(--text-main);
         }
 
-        header {
-            display: flex;
-            align-items: center;
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid var(--border);
+        .wrap { max-width: 980px; margin: 0 auto; padding: 0 20px; }
+
+        /* ---------- Nav ---------- */
+        nav {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 0;
+        }
+        .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; }
+        .brand .logo { width: 28px; height: 28px; fill: var(--accent-1); }
+        .brand .cheap { color: var(--accent-1); }
+        nav .cta-mini {
+            font-size: 13px; font-weight: 600; color: var(--text-main);
+            text-decoration: none; border: 1px solid var(--border); border-radius: 20px; padding: 6px 14px;
+        }
+        nav .cta-mini:hover { border-color: var(--accent-1); }
+
+        /* ---------- Hero ---------- */
+        .hero-landing {
+            text-align: center;
+            padding: 64px 0 40px;
+            position: relative;
+        }
+        .hero-landing::before {
+            content: ""; position: absolute; inset: 0; pointer-events: none;
+            background:
+                radial-gradient(600px 280px at 30% 0%, rgba(63,185,80,0.10), transparent 70%),
+                radial-gradient(600px 280px at 70% 10%, rgba(88,166,255,0.10), transparent 70%);
+        }
+        .eyebrow {
+            display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: 0.08em;
+            text-transform: uppercase; color: var(--accent-1);
+            border: 1px solid rgba(63,185,80,0.4); background: rgba(63,185,80,0.08);
+            padding: 4px 14px; border-radius: 20px; margin-bottom: 22px;
+        }
+        h1.headline {
+            font-size: clamp(32px, 6vw, 54px); line-height: 1.12; font-weight: 800;
+            margin: 0 0 18px; letter-spacing: -0.02em;
+        }
+        h1 .grad {
+            background: linear-gradient(90deg, var(--accent-1), var(--accent-2));
+            -webkit-background-clip: text; background-clip: text; color: transparent;
+        }
+        .subhead {
+            font-size: 18px; color: var(--text-muted); max-width: 640px; margin: 0 auto 34px;
+        }
+        .subhead strong { color: var(--text-main); }
+
+        .cta-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+        .cta-primary {
+            display: inline-block; text-decoration: none; font-weight: 700; font-size: 16px;
+            color: #fff; background: var(--btn-bg); padding: 13px 30px; border-radius: 8px;
+            border: 1px solid rgba(240,246,252,0.1); transition: background 0.2s, transform 0.1s;
+        }
+        .cta-primary:hover { background: var(--btn-hover); transform: translateY(-1px); }
+        .cta-secondary {
+            display: inline-block; text-decoration: none; font-weight: 600; font-size: 16px;
+            color: var(--text-main); padding: 13px 26px; border-radius: 8px; border: 1px solid var(--border);
+        }
+        .cta-secondary:hover { border-color: var(--accent-2); }
+
+        /* ---------- Price comparison ---------- */
+        .price-strip { display: grid; grid-template-columns: 1fr auto 1fr; gap: 18px; align-items: stretch; margin: 52px 0 8px; }
+        .price-card {
+            border: 1px solid var(--border); border-radius: 12px; padding: 26px 22px; text-align: center;
+            background: var(--card-bg);
+        }
+        .price-card.them { border-color: rgba(248,81,73,0.35); }
+        .price-card.us { border-color: rgba(63,185,80,0.5); background: linear-gradient(180deg, rgba(63,185,80,0.07), var(--card-bg)); position: relative; }
+        .price-card .who { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+        .price-card .amount { font-size: clamp(36px, 5vw, 52px); font-weight: 800; margin: 8px 0 2px; }
+        .price-card.them .amount { color: var(--grade-f); }
+        .price-card.us .amount { color: var(--accent-1); }
+        .price-card .per { color: var(--text-muted); font-size: 13px; }
+        .price-card .detail { color: var(--text-muted); font-size: 13px; margin-top: 10px; }
+        .vs { display: flex; align-items: center; justify-content: center; font-weight: 800; color: var(--text-muted); font-size: 18px; }
+        .save-badge {
+            position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+            background: var(--accent-1); color: #04260d; font-size: 12px; font-weight: 800;
+            padding: 3px 14px; border-radius: 14px; white-space: nowrap;
         }
 
-        .logo {
-            width: 40px;
-            height: 40px;
-            margin-right: 15px;
-            fill: var(--text-main);
+        /* ---------- Pipeline / features ---------- */
+        .section-h { text-align: center; font-size: 26px; font-weight: 800; margin: 64px 0 8px; letter-spacing: -0.01em; }
+        .section-sub { text-align: center; color: var(--text-muted); margin: 0 auto 32px; max-width: 560px; font-size: 15px; }
+        .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
+        .step {
+            background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 20px;
         }
+        .step .num {
+            width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-weight: 800; font-size: 14px; color: var(--bg-color); background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+            margin-bottom: 12px;
+        }
+        .step h3 { margin: 0 0 6px; font-size: 15px; }
+        .step p { margin: 0; color: var(--text-muted); font-size: 13px; }
 
-        h1 { margin: 0; font-size: 24px; font-weight: 600; }
-
+        /* ---------- Tool ---------- */
+        .tool-anchor { padding-top: 40px; }
         .card {
             background-color: var(--card-bg);
             border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 20px;
-            margin-bottom: 20px;
+            border-radius: 10px;
+            padding: 18px 20px;
+            margin-bottom: 18px;
         }
-
-        .form-group { margin-bottom: 15px; }
-        
-        label { 
-            display: block; 
-            margin-bottom: 8px; 
-            font-weight: 600; 
-            font-size: 14px;
+        .tool-card { border-color: rgba(63,185,80,0.35); }
+        .form-group { margin-bottom: 14px; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; }
+        input[type="text"], input[type="password"] {
+            width: 100%; padding: 12px 14px;
+            background-color: var(--input-bg); border: 1px solid var(--border);
+            border-radius: 8px; color: var(--text-main); font-size: 14px;
         }
-        
-        input[type="text"], input[type="password"] { 
-            width: 100%; 
-            padding: 10px 12px; 
-            box-sizing: border-box; 
-            background-color: var(--input-bg);
-            border: 1px solid var(--border); 
-            border-radius: 6px; 
-            color: var(--text-main);
-            font-size: 14px;
+        input:focus { outline: none; border-color: var(--accent-2); box-shadow: 0 0 0 3px rgba(88,166,255,0.3); }
+        details { margin-bottom: 16px; }
+        summary { cursor: pointer; color: var(--text-muted); font-size: 14px; user-select: none; }
+        .token-field { margin-top: 10px; }
+        button {
+            padding: 12px 26px; background-color: var(--btn-bg); color: #fff;
+            border: 1px solid rgba(240,246,252,0.1); border-radius: 8px; cursor: pointer;
+            font-size: 15px; font-weight: 700; transition: background-color 0.2s;
         }
-        
-        input:focus {
-            outline: none;
-            border-color: #58a6ff;
-            box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.3);
-        }
-
-        details {
-            margin-bottom: 20px;
-        }
-        
-        summary {
-            cursor: pointer;
-            color: var(--text-muted);
-            font-size: 14px;
-            user-select: none;
-        }
-
-        .token-field {
-            margin-top: 10px;
-        }
-
-        button { 
-            padding: 8px 16px; 
-            background-color: var(--btn-bg); 
-            color: #ffffff; 
-            border: 1px solid rgba(240, 246, 252, 0.1); 
-            border-radius: 6px; 
-            cursor: pointer; 
-            font-size: 14px;
-            font-weight: 600;
-            transition: background-color 0.2s;
-        }
-        
         button:hover:not(:disabled) { background-color: var(--btn-hover); }
-        button:disabled { 
-            background-color: var(--btn-disabled); 
-            color: rgba(255, 255, 255, 0.5);
-            cursor: not-allowed; 
-        }
+        button:disabled { background-color: var(--btn-disabled); color: rgba(255,255,255,0.5); cursor: not-allowed; }
 
-        /* Spinner */
-        .loader-container {
-            display: none;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-            padding: 40px 0;
-        }
+        /* Pipeline loader */
+        .loader-container { display: none; padding: 28px 0; }
+        .pipeline { max-width: 420px; margin: 0 auto; }
+        .pl-step { display: flex; align-items: center; gap: 12px; padding: 8px 0; color: var(--text-muted); font-size: 14px; transition: color 0.3s; }
+        .pl-step .dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border); flex: none; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+        .pl-step.active { color: var(--text-main); }
+        .pl-step.active .dot { border-color: var(--accent-2); animation: pulse 1.2s ease-in-out infinite; }
+        .pl-step.done { color: var(--accent-1); }
+        .pl-step.done .dot { border-color: var(--accent-1); }
+        @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(88,166,255,0.35); } 50% { box-shadow: 0 0 0 6px rgba(88,166,255,0); } }
 
-        .spinner {
-            width: 40px;
-            height: 40px;
-            border: 4px solid var(--border);
-            border-top-color: var(--text-muted);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-bottom: 15px;
-        }
+        .error { color: var(--grade-f); padding: 15px; border: 1px solid var(--grade-f); background-color: rgba(248,81,73,0.1); border-radius: 8px; margin-top: 20px; }
 
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+        /* ---------- Results (dashboard) ---------- */
+        .hero { display: grid; grid-template-columns: 210px 1fr; gap: 18px; margin-bottom: 18px; }
+        .gauge-card { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+        .gauge {
+            width: 150px; height: 150px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            background: conic-gradient(var(--gauge-color) calc(var(--pct) * 1%), var(--border) 0);
         }
+        .gauge-inner {
+            width: 122px; height: 122px; border-radius: 50%; background: var(--card-bg);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        .gauge-score { font-size: 38px; font-weight: 700; line-height: 1; }
+        .gauge-grade { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+        .gauge-label { margin-top: 12px; font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        .cap-note { font-size: 11px; color: var(--sev-major); margin-top: 6px; }
 
-        .error { 
-            color: var(--high-sev); 
-            padding: 15px; 
-            border: 1px solid var(--high-sev); 
-            background-color: var(--high-bg); 
-            border-radius: 6px; 
-            margin-top: 20px; 
-        }
-
-        /* Results */
-        .stats-bar {
-            display: flex;
-            gap: 20px;
-            margin-top: 10px;
-            font-size: 14px;
-            color: var(--text-muted);
-        }
-
-        .stats-item strong { color: var(--text-main); }
-        .additions { color: var(--approve); }
-        .deletions { color: var(--changes); }
-
-        .verdict-banner {
-            padding: 20px;
-            border-radius: 6px;
-            margin-bottom: 20px;
-            text-align: center;
-            border: 1px solid transparent;
-        }
-        
-        .verdict-banner.approve {
-            background-color: rgba(63, 185, 80, 0.1);
-            border-color: var(--approve);
-        }
-        
-        .verdict-banner.changes {
-            background-color: rgba(248, 81, 73, 0.1);
-            border-color: var(--changes);
-        }
-
-        .verdict-title {
-            font-size: 24px;
-            font-weight: bold;
-            margin: 0 0 10px 0;
-        }
-        
+        .verdict-card { display: flex; flex-direction: column; justify-content: center; border-left: 4px solid var(--text-muted); }
+        .verdict-card.approve { border-left-color: var(--approve); }
+        .verdict-card.nits { border-left-color: var(--nits); }
+        .verdict-card.changes { border-left-color: var(--changes); }
+        .verdict-card.block { border-left-color: var(--block); }
+        .verdict-title { font-size: 22px; font-weight: 700; margin: 0 0 6px; }
         .verdict-title.approve { color: var(--approve); }
+        .verdict-title.nits { color: var(--nits); }
         .verdict-title.changes { color: var(--changes); }
+        .verdict-title.block { color: var(--block); }
+        .verdict-reason { color: var(--text-main); margin: 0 0 10px; font-size: 14px; }
+        .sev-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+        .sev-chip { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 20px; border: 1px solid var(--border); }
+        .sev-chip .n { font-weight: 700; }
 
-        .verdict-reason {
-            font-size: 16px;
-            color: var(--text-main);
-            margin: 0;
+        h2 { font-size: 18px; margin: 0 0 4px; }
+        .section-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin: 0 0 14px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+
+        /* Process checks */
+        .checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+        .check { display: flex; gap: 10px; align-items: flex-start; background: var(--card-bg-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+        .check .ic { font-size: 16px; line-height: 1.4; }
+        .check .t { font-size: 13px; font-weight: 600; }
+        .check .d { font-size: 12px; color: var(--text-muted); }
+        .check.pass { border-color: rgba(63,185,80,0.4); }
+        .check.warn { border-color: rgba(210,153,34,0.5); }
+        .check.na   { opacity: 0.75; }
+
+        /* Cost banner */
+        .cost-banner {
+            display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+            border: 1px solid rgba(63,185,80,0.4); background: linear-gradient(90deg, rgba(63,185,80,0.08), rgba(88,166,255,0.06));
+            border-radius: 10px; padding: 14px 20px; margin-bottom: 18px;
         }
+        .cost-banner .big { font-size: 20px; font-weight: 800; color: var(--accent-1); }
+        .cost-banner .strike { text-decoration: line-through; color: var(--text-muted); font-weight: 600; }
+        .cost-banner .meta-sm { font-size: 12px; color: var(--text-muted); }
 
-        h2, h3 { margin-top: 0; color: var(--text-main); border-bottom: 1px solid var(--border); padding-bottom: 8px;}
+        .signals { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
+        .signal { background: var(--card-bg-2); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; }
+        .signal .v { font-size: 18px; font-weight: 700; color: var(--text-main); }
+        .signal .v .add { color: var(--approve); }
+        .signal .v .del { color: var(--grade-f); }
+        .signal .k { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px; }
+        .flags { margin-top: 14px; }
+        .flag { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--sev-minor); padding: 4px 0; }
 
-        .issue { 
-            border-left: 4px solid transparent; 
-            padding: 12px 15px; 
-            margin-bottom: 12px; 
-            background: var(--input-bg); 
-            border-radius: 0 6px 6px 0;
-            border-top: 1px solid var(--border);
-            border-right: 1px solid var(--border);
-            border-bottom: 1px solid var(--border);
-        }
-        
-        .issue.high { border-left-color: var(--high-sev); }
-        .issue.medium { border-left-color: var(--med-sev); }
-        .issue.low { border-left-color: var(--low-sev); }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); padding: 6px 8px; border-bottom: 1px solid var(--border); font-weight: 600; }
+        td { padding: 9px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+        .dim-weight { color: var(--text-muted); font-size: 12px; }
+        .bar-wrap { display: flex; align-items: center; gap: 10px; }
+        .bar { flex: 1; height: 8px; background: var(--input-bg); border-radius: 4px; overflow: hidden; min-width: 80px; }
+        .bar > span { display: block; height: 100%; border-radius: 4px; }
+        .grade-pill { display: inline-block; min-width: 26px; text-align: center; font-weight: 700; font-size: 13px; padding: 1px 7px; border-radius: 5px; }
 
-        .badge {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 600;
-            margin-right: 8px;
-        }
-        
-        .badge.high { background-color: var(--high-bg); color: var(--high-sev); border: 1px solid var(--high-sev); }
-        .badge.medium { background-color: var(--med-bg); color: var(--med-sev); border: 1px solid var(--med-sev); }
-        .badge.low { background-color: var(--low-bg); color: var(--low-sev); border: 1px solid var(--low-sev); }
+        .guideline-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .pill { font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 20px; border: 1px solid var(--border); }
+        .pill.ok { color: var(--approve); border-color: var(--approve); background: rgba(63,185,80,0.08); }
+        .pill.warn { color: var(--sev-minor); border-color: var(--sev-minor); background: rgba(210,153,34,0.08); }
+        a { color: var(--accent-2); }
 
-        .issue-file {
-            font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
-            font-size: 13px;
-            color: var(--text-muted);
-            background: rgba(240, 246, 252, 0.1);
-            padding: 2px 6px;
-            border-radius: 4px;
-        }
+        .issue { border-left: 4px solid transparent; padding: 12px 15px; margin-bottom: 12px; background: var(--card-bg-2); border-radius: 0 6px 6px 0; border-top: 1px solid var(--border); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+        .issue.blocker { border-left-color: var(--sev-blocker); }
+        .issue.critical { border-left-color: var(--sev-critical); }
+        .issue.major { border-left-color: var(--sev-major); }
+        .issue.minor { border-left-color: var(--sev-minor); }
+        .issue.info { border-left-color: var(--sev-info); }
+        .issue-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+        .badge.blocker { color: var(--sev-blocker); border: 1px solid var(--sev-blocker); background: rgba(218,54,51,0.12); }
+        .badge.critical { color: var(--sev-critical); border: 1px solid var(--sev-critical); background: rgba(248,81,73,0.1); }
+        .badge.major { color: var(--sev-major); border: 1px solid var(--sev-major); background: rgba(219,109,40,0.1); }
+        .badge.minor { color: var(--sev-minor); border: 1px solid var(--sev-minor); background: rgba(210,153,34,0.1); }
+        .badge.info { color: var(--sev-info); border: 1px solid var(--sev-info); background: rgba(88,166,255,0.1); }
+        .cat-tag { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+        .issue-file { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--text-muted); background: rgba(240,246,252,0.06); padding: 2px 6px; border-radius: 4px; }
+        .issue-comment { font-size: 14px; margin: 4px 0; }
+        .issue-fix { font-size: 13px; color: var(--text-muted); margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--border); }
+        .issue-fix b { color: var(--approve); font-weight: 600; }
 
-        .issue-comment { margin-top: 8px; font-size: 14px; }
+        ul { padding-left: 20px; margin: 6px 0; }
+        li { margin-bottom: 6px; }
+        .good li::marker { color: var(--approve); }
 
-        ul { padding-left: 20px; }
-        li { margin-bottom: 8px; }
+        footer { text-align: center; color: var(--text-muted); font-size: 13px; padding: 48px 0 32px; border-top: 1px solid var(--border); margin-top: 64px; }
 
-        @media (max-width: 600px) {
-            .stats-bar { flex-direction: column; gap: 5px; }
+        @media (max-width: 680px) {
+            .hero { grid-template-columns: 1fr; }
+            .price-strip { grid-template-columns: 1fr; }
+            .vs { padding: 4px 0; }
         }
     </style>
 </head>
 <body>
-    <header>
-        <svg class="logo" viewBox="0 0 16 16" version="1.1" aria-hidden="true">
-            <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
-        </svg>
-        <h1>PR Review Agent</h1>
-    </header>
-    
-    <div class="card">
-        <div class="form-group">
-            <label for="pr_url">GitHub PR URL</label>
-            <input type="text" id="pr_url" placeholder="e.g. https://github.com/fastapi/fastapi/pull/1">
-        </div>
-        
-        <details>
-            <summary>Advanced Options</summary>
-            <div class="form-group token-field">
-                <label for="github_token">GitHub Token (Optional)</label>
-                <input type="password" id="github_token" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Optional token for private repos or rate limits">
-                <small style="color: var(--text-muted); display: block; margin-top: 6px;">Used only for this request. Never stored by the app.</small>
+    <div class="wrap">
+        <nav>
+            <div class="brand">
+                <svg class="logo" viewBox="0 0 16 16" aria-hidden="true">
+                    <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
+                </svg>
+                Review<span class="cheap">Cheap</span>
             </div>
-        </details>
-        
-        <button id="submitBtn" onclick="submitReview()">Review PR</button>
+            <a class="cta-mini" href="#tool">Review a PR →</a>
+        </nav>
+
+        <!-- Landing hero -->
+        <section class="hero-landing">
+            <span class="eyebrow">Open models · Same rigor · 2500× cheaper</span>
+            <h1 class="headline">Senior-grade PR reviews<br>for <span class="grad">less than a cent</span></h1>
+            <p class="subhead">
+                Claude charges <strong>$25 per PR review</strong>. We run the same metrics-driven review
+                pipeline on open models — grounded in <strong>your repo's CONTRIBUTING.md</strong>,
+                verified against <strong>linked issues &amp; assignees</strong> — for <strong>~$0.01</strong>.
+            </p>
+            <div class="cta-row">
+                <a class="cta-primary" href="#tool">Review a PR free</a>
+                <a class="cta-secondary" href="#how">How it works</a>
+            </div>
+
+            <div class="price-strip">
+                <div class="price-card them">
+                    <div class="who">Claude Code review</div>
+                    <div class="amount">$25</div>
+                    <div class="per">per PR review</div>
+                    <div class="detail">Frontier model, closed weights, premium pricing.</div>
+                </div>
+                <div class="vs">VS</div>
+                <div class="price-card us">
+                    <span class="save-badge">SAVE 99.96%</span>
+                    <div class="who">ReviewCheap</div>
+                    <div class="amount">~$0.01</div>
+                    <div class="per">per PR review</div>
+                    <div class="detail">Open 72B-class model + deterministic scoring. Cost shown on every review.</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Pipeline -->
+        <section id="how">
+            <h2 class="section-h">Process-first, not vibes-first</h2>
+            <p class="section-sub">Every review runs the same pipeline a strict human maintainer would — before a single line of the diff is judged.</p>
+            <div class="steps">
+                <div class="step">
+                    <div class="num">1</div>
+                    <h3>Read CONTRIBUTING.md</h3>
+                    <p>We locate your repo's contribution guidelines first — even org-level <code>.github</code> repos — and score the PR against <em>your</em> rules.</p>
+                </div>
+                <div class="step">
+                    <div class="num">2</div>
+                    <h3>Verify issue linkage</h3>
+                    <p>Does the PR close a real issue? Is the author actually assigned? Checked via the GitHub API, not guessed.</p>
+                </div>
+                <div class="step">
+                    <div class="num">3</div>
+                    <h3>Measure the diff</h3>
+                    <p>Churn, blast radius, test-to-code ratio, new dependencies — objective signals computed deterministically.</p>
+                </div>
+                <div class="step">
+                    <div class="num">4</div>
+                    <h3>Score 8 dimensions</h3>
+                    <p>Correctness, security, testing, reliability &amp; more — weighted into one Health Score with severity hard-caps. The model can't talk its way to an APPROVE.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tool -->
+        <section id="tool" class="tool-anchor">
+            <h2 class="section-h">Try it on a real PR</h2>
+            <p class="section-sub">Paste any public GitHub pull-request URL. Private repos work with a token.</p>
+            <div class="card tool-card">
+                <div class="form-group">
+                    <label for="pr_url">GitHub PR URL</label>
+                    <input type="text" id="pr_url" placeholder="e.g. https://github.com/pallets/flask/pull/6072">
+                </div>
+                <details>
+                    <summary>Advanced Options</summary>
+                    <div class="form-group token-field">
+                        <label for="github_token">GitHub Token (Optional)</label>
+                        <input type="password" id="github_token" placeholder="ghp_... (for private repos or higher rate limits)">
+                    </div>
+                </details>
+                <button id="submitBtn" onclick="submitReview()">Review PR</button>
+            </div>
+
+            <div id="loading" class="loader-container">
+                <div class="pipeline" id="pipelineSteps">
+                    <div class="pl-step" data-step="0"><span class="dot">1</span> Fetching PR &amp; reading CONTRIBUTING.md…</div>
+                    <div class="pl-step" data-step="1"><span class="dot">2</span> Verifying linked issues &amp; assignees…</div>
+                    <div class="pl-step" data-step="2"><span class="dot">3</span> Measuring diff signals…</div>
+                    <div class="pl-step" data-step="3"><span class="dot">4</span> Scoring 8 quality dimensions…</div>
+                </div>
+            </div>
+
+            <div id="result"></div>
+        </section>
+
+        <footer>
+            ReviewCheap — metrics-driven PR review on open models.
+            Built with FastAPI + Hugging Face Inference. MIT licensed.
+        </footer>
     </div>
-    
-    <div id="loading" class="loader-container">
-        <div class="spinner"></div>
-        <div>Fetching PR data and running AI review...</div>
-    </div>
-    
-    <div id="result"></div>
 
     <script>
+        const GRADE_COLOR = { A: 'var(--grade-a)', B: 'var(--grade-b)', C: 'var(--grade-c)', D: 'var(--grade-d)', F: 'var(--grade-f)', 'N/A': 'var(--text-muted)' };
+        const VERDICT_META = {
+            APPROVE:            { cls: 'approve', icon: '✅', label: 'APPROVE' },
+            APPROVE_WITH_NITS:  { cls: 'nits',    icon: '👍', label: 'APPROVE WITH NITS' },
+            REQUEST_CHANGES:    { cls: 'changes', icon: '🔄', label: 'REQUEST CHANGES' },
+            BLOCK:              { cls: 'block',   icon: '⛔', label: 'BLOCK' },
+        };
+        const SEVS = ['blocker', 'critical', 'major', 'minor', 'info'];
+        let stepTimer = null;
+
+        function startPipelineAnim() {
+            const steps = [...document.querySelectorAll('.pl-step')];
+            steps.forEach(s => s.classList.remove('active', 'done'));
+            let i = 0;
+            steps[0].classList.add('active');
+            stepTimer = setInterval(() => {
+                if (i < steps.length - 1) {
+                    steps[i].classList.remove('active'); steps[i].classList.add('done');
+                    i++; steps[i].classList.add('active');
+                }
+            }, 2600);
+        }
+        function stopPipelineAnim() { if (stepTimer) { clearInterval(stepTimer); stepTimer = null; } }
+
         async function submitReview() {
             const prUrl = document.getElementById('pr_url').value.trim();
             const githubToken = document.getElementById('github_token').value.trim();
             const btn = document.getElementById('submitBtn');
             const loading = document.getElementById('loading');
             const resultDiv = document.getElementById('result');
-            
-            if (!prUrl) {
-                alert('Please enter a PR URL');
-                return;
-            }
+
+            if (!prUrl) { alert('Please enter a PR URL'); return; }
 
             btn.disabled = true;
-            loading.style.display = 'flex';
+            loading.style.display = 'block';
             resultDiv.innerHTML = '';
+            startPipelineAnim();
 
             try {
                 const response = await fetch('/review', {
@@ -305,109 +454,212 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ pr_url: prUrl, github_token: githubToken || null })
                 });
-
                 const data = await response.json();
-                
-                if (response.ok) {
-                    displayReview(data);
-                } else {
-                    displayError(data.detail || 'Unknown error occurred');
-                }
+                if (response.ok) { displayReview(data); }
+                else { resultDiv.innerHTML = `<div class="error"><strong>Error:</strong> ${esc(data.detail || 'Unknown error')}</div>`; }
             } catch (error) {
-                displayError(`Network Error: ${error.message}`);
+                resultDiv.innerHTML = `<div class="error"><strong>Network Error:</strong> ${esc(error.message)}</div>`;
             } finally {
                 btn.disabled = false;
+                stopPipelineAnim();
                 loading.style.display = 'none';
+                document.getElementById('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         }
 
-        function displayError(message) {
-            const resultDiv = document.getElementById('result');
-            resultDiv.innerHTML = '';
-            const box = document.createElement('div');
-            box.className = 'error';
-            const label = document.createElement('strong');
-            label.textContent = 'Error: ';
-            const text = document.createTextNode(message || 'Unknown error occurred');
-            box.appendChild(label);
-            box.appendChild(text);
-            resultDiv.appendChild(box);
-        }
-        
         function displayReview(data) {
-            const meta = data.metadata;
-            const rev = data.review;
-            
-            const isApproved = rev.verdict === 'APPROVE';
-            const verdictClass = isApproved ? 'approve' : 'changes';
-            const verdictIcon = isApproved ? '✅' : '🔄';
-            
-            let html = `
-                <div class="card">
-                    <h2>${escapeHtml(meta.title)} <span style="color: var(--text-muted); font-weight: normal;">#${meta.commits} commits</span></h2>
-                    
-                    <div class="stats-bar">
-                        <div class="stats-item">Author: <strong>${escapeHtml(meta.author)}</strong></div>
-                        <div class="stats-item">Files changed: <strong>${meta.changed_files}</strong></div>
-                        <div class="stats-item additions">+${meta.additions} additions</div>
-                        <div class="stats-item deletions">-${meta.deletions} deletions</div>
-                    </div>
-                </div>
-                
-                <div class="verdict-banner ${verdictClass}">
-                    <div class="verdict-title ${verdictClass}">${verdictIcon} ${escapeHtml(rev.verdict)}</div>
-                    <p class="verdict-reason">${escapeHtml(rev.verdict_reason)}</p>
-                </div>
-                
-                <div class="card">
-                    <h3>Summary</h3>
-                    <p>${escapeHtml(rev.summary)}</p>
-                </div>
-            `;
-            
-            if (rev.issues && rev.issues.length > 0) {
-                html += `<div class="card"><h3>Issues Found</h3>`;
-                rev.issues.forEach(issue => {
-                    const sev = sanitizeSeverity(issue.severity);
-                    const sevDisplay = sev.charAt(0).toUpperCase() + sev.slice(1);
-                    html += `
-                        <div class="issue ${sev}">
-                            <div>
-                                <span class="badge ${sev}">${sevDisplay}</span>
-                                <span class="issue-file">${escapeHtml(issue.file || 'General')}</span>
-                            </div>
-                            <div class="issue-comment">${escapeHtml(issue.comment)}</div>
-                        </div>
-                    `;
-                });
-                html += `</div>`;
-            }
-            
-            if (rev.suggestions && rev.suggestions.length > 0) {
-                html += `<div class="card"><h3>Suggestions</h3><ul>`;
-                rev.suggestions.forEach(s => {
-                    html += `<li>${escapeHtml(s)}</li>`;
-                });
-                html += `</ul></div>`;
-            }
-            
+            const meta = data.metadata || {};
+            const rev = data.review || {};
+            const sig = data.signals || {};
+            let html = '';
+
+            html += costBanner(rev.cost);
+            html += heroBlock(meta, rev);
+            html += processBlock(rev.process, rev.guideline);
+            html += metaSignalsBlock(meta, sig);
+            html += guidelineBlock(rev.guideline);
+            html += scorecardBlock(rev.scorecard);
+            if (rev.summary) html += `<div class="card"><p class="section-title">Summary</p><p>${esc(rev.summary)}</p></div>`;
+            html += issuesBlock(rev.issues);
+            html += listBlock('What’s Good', rev.highlights, 'good');
+            html += listBlock('Suggestions', rev.suggestions, '');
+
             document.getElementById('result').innerHTML = html;
         }
-        
-        function escapeHtml(unsafe) {
-            if (!unsafe) return '';
-            return unsafe
-                 .toString()
-                 .replace(/&/g, "&amp;")
-                 .replace(/</g, "&lt;")
-                 .replace(/>/g, "&gt;")
-                 .replace(/"/g, "&quot;")
-                 .replace(/'/g, "&#039;");
+
+        function costBanner(cost) {
+            if (!cost) return '';
+            const usd = cost.usd < 0.01 ? '$' + cost.usd.toFixed(4) : '$' + cost.usd.toFixed(2);
+            return `
+            <div class="cost-banner">
+                <div>
+                    <span class="big">This review cost ~${usd}</span>
+                    &nbsp;<span class="strike">$${cost.claude_price_usd} with Claude</span>
+                </div>
+                <div class="meta-sm">${cost.tokens_in.toLocaleString()} in / ${cost.tokens_out.toLocaleString()} out tokens · ${esc(cost.model)} · you saved ${cost.savings_pct}%</div>
+            </div>`;
         }
 
-        function sanitizeSeverity(value) {
-            const sev = (value || 'low').toString().toLowerCase();
-            return ['high', 'medium', 'low'].includes(sev) ? sev : 'low';
+        function processBlock(proc, guideline) {
+            if (!proc) return '';
+            const checks = [];
+
+            checks.push(proc.contributing_found
+                ? { cls: 'pass', ic: '✅', t: 'CONTRIBUTING.md found', d: 'Review graded against the project’s own rules.' }
+                : { cls: 'warn', ic: '⚠️', t: 'No CONTRIBUTING.md', d: 'Guideline dimension scored N/A.' });
+
+            if (proc.has_linked_issue) {
+                const iss = (proc.issues || [])[0] || {};
+                const label = (proc.issues || []).map(i => `#${i.number}`).join(', ');
+                checks.push({ cls: 'pass', ic: '✅', t: `Linked to issue ${label}`, d: esc(iss.title || '') });
+                checks.push(proc.author_assigned
+                    ? { cls: 'pass', ic: '✅', t: 'Author is assigned', d: `${esc(proc.pr_author)} is an assignee on the linked issue.` }
+                    : { cls: 'warn', ic: '⚠️', t: 'Author not assigned', d: `${esc(proc.pr_author)} is not assigned to the linked issue.` });
+            } else {
+                checks.push({ cls: 'warn', ic: '⚠️', t: 'No linked issue', d: 'PR does not reference or close any issue.' });
+                checks.push({ cls: 'na', ic: '➖', t: 'Assignee check', d: 'Skipped — no issue to check against.' });
+            }
+
+            const cells = checks.map(c =>
+                `<div class="check ${c.cls}"><span class="ic">${c.ic}</span><div><div class="t">${c.t}</div><div class="d">${c.d}</div></div></div>`
+            ).join('');
+            return `<div class="card"><p class="section-title">Process Checks</p><div class="checks">${cells}</div></div>`;
+        }
+
+        function heroBlock(meta, rev) {
+            const score = rev.health_score ?? 0;
+            const grade = rev.health_grade || 'N/A';
+            const v = VERDICT_META[rev.verdict] || { cls: '', icon: '', label: rev.verdict || 'N/A' };
+            const capNote = rev.capped ? `<div class="cap-note">capped at ${rev.score_cap} by open issues (raw ${rev.weighted_raw})</div>` : '';
+
+            let chips = '';
+            const counts = rev.severity_counts || {};
+            SEVS.forEach(s => {
+                if (counts[s]) chips += `<span class="sev-chip" style="color:var(--sev-${s}); border-color:var(--sev-${s})"><span class="n">${counts[s]}</span> ${s}</span>`;
+            });
+            if (!chips) chips = `<span class="sev-chip" style="color:var(--approve); border-color:var(--approve)">No issues found</span>`;
+
+            return `
+            <div class="hero">
+                <div class="card gauge-card">
+                    <div class="gauge" style="--pct:${score}; --gauge-color:${GRADE_COLOR[grade]}">
+                        <div class="gauge-inner">
+                            <div class="gauge-score" style="color:${GRADE_COLOR[grade]}">${score}</div>
+                            <div class="gauge-grade">Grade ${grade}</div>
+                        </div>
+                    </div>
+                    <div class="gauge-label">PR Health Score</div>
+                    ${capNote}
+                </div>
+                <div class="card verdict-card ${v.cls}">
+                    <div class="verdict-title ${v.cls}">${v.icon} ${esc(v.label)}</div>
+                    <p class="verdict-reason">${esc(rev.verdict_reason || '')}</p>
+                    <div class="sev-chips">${chips}</div>
+                </div>
+            </div>`;
+        }
+
+        function metaSignalsBlock(meta, sig) {
+            const langs = (sig.languages || []).slice(0, 4).map(l => `${esc(l.language)}`).join(', ') || '—';
+            const ratio = (sig.test_to_code_ratio === null || sig.test_to_code_ratio === undefined) ? '—' : sig.test_to_code_ratio;
+            const deps = (sig.new_dependencies && sig.new_dependencies.length) ? sig.new_dependencies.length : 0;
+            const signals = [
+                { k: 'Files changed', v: sig.files_changed ?? meta.changed_files ?? '—' },
+                { k: 'Lines', v: `<span class="add">+${sig.additions ?? meta.additions ?? 0}</span> <span class="del">-${sig.deletions ?? meta.deletions ?? 0}</span>` },
+                { k: 'Commits', v: sig.commits ?? meta.commits ?? '—' },
+                { k: 'Test / code ratio', v: ratio },
+                { k: 'New deps', v: deps },
+                { k: 'Blast radius', v: `${sig.blast_radius ?? '—'} mods` },
+                { k: 'Primary lang', v: esc(sig.primary_language || '—') },
+                { k: 'Languages', v: langs },
+            ];
+            let cells = signals.map(s => `<div class="signal"><div class="v">${s.v}</div><div class="k">${esc(s.k)}</div></div>`).join('');
+
+            let flags = '';
+            (sig.risk_flags || []).forEach(f => { flags += `<div class="flag">⚠ ${esc(f)}</div>`; });
+            const flagsBlock = flags ? `<div class="flags">${flags}</div>` : '';
+
+            const branch = meta.base_branch ? `<span class="dim-weight">${esc(meta.head_branch)} → ${esc(meta.base_branch)}</span>` : '';
+            return `
+            <div class="card">
+                <h2>${esc(meta.title || 'Pull Request')}</h2>
+                <p class="dim-weight" style="margin-top:0">by ${esc(meta.author || 'unknown')} ${branch ? '· ' + branch : ''}</p>
+                <div class="signals">${cells}</div>
+                ${flagsBlock}
+            </div>`;
+        }
+
+        function guidelineBlock(g) {
+            if (!g) return '';
+            let head, body;
+            if (g.found) {
+                const link = g.url ? `<a href="${esc(g.url)}" target="_blank" rel="noopener">${esc(g.path || 'CONTRIBUTING.md')}</a>` : esc(g.path || 'CONTRIBUTING.md');
+                head = `<span class="pill ok">✓ Guidelines applied</span> <span class="dim-weight">${link}</span>`;
+                if (g.violations && g.violations.length) {
+                    body = `<p style="margin:12px 0 6px">Violations of the project's contribution rules:</p><ul>` +
+                        g.violations.map(v => `<li>${esc(v)}</li>`).join('') + `</ul>`;
+                } else {
+                    body = `<p style="margin:12px 0 0; color:var(--approve)">✓ No contribution-guideline violations detected.</p>`;
+                }
+            } else {
+                head = `<span class="pill warn">No CONTRIBUTING.md found</span>`;
+                body = `<p style="margin:12px 0 0" class="dim-weight">This repo has no discoverable contribution guidelines, so the Guideline dimension was scored N/A and its weight redistributed.</p>`;
+            }
+            return `<div class="card"><p class="section-title">Contribution Guidelines</p><div class="guideline-head">${head}</div>${body}</div>`;
+        }
+
+        function scorecardBlock(scorecard) {
+            if (!scorecard || !scorecard.length) return '';
+            let rows = scorecard.map(d => {
+                const na = d.score === null || d.score === undefined;
+                const color = GRADE_COLOR[d.grade] || 'var(--text-muted)';
+                const bar = na
+                    ? `<span class="dim-weight">not applicable</span>`
+                    : `<div class="bar-wrap"><div class="bar"><span style="width:${d.score}%; background:${color}"></span></div><strong style="min-width:32px; text-align:right">${d.score}</strong></div>`;
+                return `<tr>
+                    <td>${esc(d.label)}</td>
+                    <td class="dim-weight">${Math.round(d.weight * 100)}%</td>
+                    <td>${bar}</td>
+                    <td><span class="grade-pill" style="color:${color}; border:1px solid ${color}">${esc(d.grade)}</span></td>
+                </tr>`;
+            }).join('');
+            return `<div class="card"><p class="section-title">Dimension Scorecard</p>
+                <table><thead><tr><th>Dimension</th><th>Weight</th><th>Score</th><th>Grade</th></tr></thead>
+                <tbody>${rows}</tbody></table></div>`;
+        }
+
+        function issuesBlock(issues) {
+            if (!issues || !issues.length) return '';
+            let html = `<div class="card"><p class="section-title">Issues (${issues.length})</p>`;
+            issues.forEach(it => {
+                const sev = (it.severity || 'minor').toLowerCase();
+                const line = (it.line !== null && it.line !== undefined) ? `:${it.line}` : '';
+                const cat = it.category ? `<span class="cat-tag">${esc(it.category)}</span>` : '';
+                const fix = it.suggestion ? `<div class="issue-fix"><b>Fix:</b> ${esc(it.suggestion)}</div>` : '';
+                html += `<div class="issue ${sev}">
+                    <div class="issue-head">
+                        <span class="badge ${sev}">${esc(sev)}</span>
+                        ${cat}
+                        <span class="issue-file">${esc(it.file || 'general')}${line}</span>
+                    </div>
+                    <div class="issue-comment">${esc(it.comment || '')}</div>
+                    ${fix}
+                </div>`;
+            });
+            return html + `</div>`;
+        }
+
+        function listBlock(title, items, cls) {
+            if (!items || !items.length) return '';
+            return `<div class="card"><p class="section-title">${esc(title)}</p><ul class="${cls}">` +
+                items.map(i => `<li>${esc(i)}</li>`).join('') + `</ul></div>`;
+        }
+
+        function esc(unsafe) {
+            if (unsafe === null || unsafe === undefined) return '';
+            return unsafe.toString()
+                .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
         }
     </script>
 </body>

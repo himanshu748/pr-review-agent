@@ -1,51 +1,49 @@
-from pathlib import Path
-from typing import Optional
+# Test PR URL for demo: https://github.com/fastapi/fastapi/pull/1
+
+import os
 
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator
+from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Optional
 
-from agent import HF_TOKEN_MISSING_ERROR, review_pr
 from github import fetch_pr_data
+from agent import review_pr
 
-BASE_DIR = Path(__file__).resolve().parent
-STATIC_DIR = BASE_DIR / "static"
+# Resolve paths relative to this file so it runs locally, in Docker, and on Spaces.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
 
-app = FastAPI(
-    title="AI PR Review Agent",
-    description="Review GitHub pull requests with bounded diff fetching and Hugging Face-powered analysis.",
-    version="0.2.0",
-)
+app = FastAPI(title="PR Review Agent", version="2.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:8000", "http://localhost:8000"],
-    allow_credentials=False,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 class PRRequest(BaseModel):
-    pr_url: str = Field(..., min_length=1, max_length=300)
-    github_token: Optional[str] = Field(default=None, max_length=200)
-
-    @field_validator("github_token")
-    @classmethod
-    def normalize_github_token(cls, value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return None
-        normalized = value.strip()
-        return normalized or None
+    pr_url: str
+    github_token: Optional[str] = None
 
 
 @app.get("/")
 async def read_root():
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+
+
+@app.get("/healthz")
+async def healthz():
+    token = os.getenv("HF_TOKEN")
+    configured = bool(token) and token != "your_huggingface_token_here"
+    return {"status": "ok", "hf_token_configured": configured}
 
 
 @app.post("/review")
@@ -54,26 +52,29 @@ async def create_review(request: PRRequest):
         pr_data = await fetch_pr_data(request.pr_url, request.github_token)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception:
-        raise HTTPException(status_code=502, detail="GitHub API request failed")
-        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"GitHub API Error: {str(e)}")
+
     review_result = await review_pr(pr_data)
-    
+
     if "error" in review_result:
-        status_code = 503 if review_result["error"] == HF_TOKEN_MISSING_ERROR else 502
-        raise HTTPException(status_code=status_code, detail=review_result["error"])
-        
+        raise HTTPException(status_code=500, detail=review_result["error"])
+
     return {
         "metadata": {
             "title": pr_data.get("title"),
             "author": pr_data.get("author"),
+            "base_branch": pr_data.get("base_branch"),
+            "head_branch": pr_data.get("head_branch"),
             "commits": pr_data.get("commits"),
             "changed_files": pr_data.get("changed_files"),
             "additions": pr_data.get("additions"),
-            "deletions": pr_data.get("deletions")
+            "deletions": pr_data.get("deletions"),
         },
-        "review": review_result
+        "signals": pr_data.get("signals"),
+        "review": review_result,
     }
+
 
 if __name__ == "__main__":
     import uvicorn
