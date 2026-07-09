@@ -1,6 +1,7 @@
 # Test PR URL for demo: https://github.com/fastapi/fastapi/pull/1
 
 import os
+import time
 
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -32,6 +33,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 class PRRequest(BaseModel):
     pr_url: str
     github_token: Optional[str] = None
+    model: Optional[str] = None  # must be in agent.ALLOWED_MODELS, else default
 
 
 @app.get("/")
@@ -46,8 +48,15 @@ async def healthz():
     return {"status": "ok", "hf_token_configured": configured}
 
 
+@app.get("/models")
+async def models():
+    from agent import ALLOWED_MODELS, DEFAULT_MODEL
+    return {"models": ALLOWED_MODELS, "default": os.getenv("HF_MODEL", DEFAULT_MODEL)}
+
+
 @app.post("/review")
 async def create_review(request: PRRequest):
+    started = time.monotonic()
     try:
         pr_data = await fetch_pr_data(request.pr_url, request.github_token)
     except ValueError as e:
@@ -55,11 +64,12 @@ async def create_review(request: PRRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"GitHub API Error: {str(e)}")
 
-    review_result = await review_pr(pr_data)
+    review_result = await review_pr(pr_data, model=request.model)
 
     if "error" in review_result:
         raise HTTPException(status_code=500, detail=review_result["error"])
 
+    review_result["duration_ms"] = int((time.monotonic() - started) * 1000)
     return {
         "metadata": {
             "title": pr_data.get("title"),

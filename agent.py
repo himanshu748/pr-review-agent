@@ -19,6 +19,14 @@ load_dotenv()
 
 DEFAULT_MODEL = "Qwen/Qwen2.5-72B-Instruct"
 
+# Models the UI may select. Whitelist — an arbitrary user-supplied model id is
+# never passed through to the inference API.
+ALLOWED_MODELS = [
+    "Qwen/Qwen2.5-72B-Instruct",
+    "Qwen/Qwen2.5-Coder-32B-Instruct",
+    "meta-llama/Llama-3.3-70B-Instruct",
+]
+
 # Rough open-model inference pricing for the cost-per-review estimate (USD per
 # 1M tokens; typical hosted rates for a 72B-class open model). Estimates only.
 PRICE_IN_PER_M = 0.40
@@ -224,12 +232,13 @@ critical = serious bug/security; major = important, fix before merge; minor = sm
 info = nit. Be precise and avoid false positives. Every score must be justified by the diff."""
 
 
-async def review_pr(pr_data: dict) -> dict:
+async def review_pr(pr_data: dict, model: str = None) -> dict:
     hf_token = os.getenv("HF_TOKEN")
     if not hf_token or hf_token == "your_huggingface_token_here":
         return {"error": "HF_TOKEN is not set in .env"}
 
-    model = os.getenv("HF_MODEL", DEFAULT_MODEL)
+    if model not in ALLOWED_MODELS:
+        model = os.getenv("HF_MODEL", DEFAULT_MODEL)
     client = AsyncInferenceClient(token=hf_token)
 
     messages = [
@@ -237,21 +246,33 @@ async def review_pr(pr_data: dict) -> dict:
         {"role": "user", "content": _build_prompt(pr_data)},
     ]
 
-    try:
-        response = await client.chat_completion(model=model, messages=messages, max_tokens=3000, temperature=0.2)
-        content = response.choices[0].message.content.strip()
-    except Exception as e:
-        return {"error": f"LLM error: {str(e)}"}
+    parsed = None
+    total_in = total_out = 0
+    content = ""
+    for attempt in range(2):
+        try:
+            response = await client.chat_completion(model=model, messages=messages, max_tokens=3000, temperature=0.2)
+            content = response.choices[0].message.content.strip()
+        except Exception as e:
+            return {"error": f"LLM error: {str(e)}"}
 
-    parsed = _extract_json(content)
+        usage = getattr(response, "usage", None)
+        total_in += getattr(usage, "prompt_tokens", None) or len(messages[-1]["content"]) // 4
+        total_out += getattr(usage, "completion_tokens", None) or len(content) // 4
+
+        parsed = _extract_json(content)
+        if parsed is not None:
+            break
+        # One retry: feed the invalid output back and demand strict JSON.
+        messages = messages[:2] + [
+            {"role": "assistant", "content": content[:4000]},
+            {"role": "user", "content": "That was not valid JSON. Respond again with ONLY the JSON object — no prose, no markdown fences."},
+        ]
+
     if parsed is None:
         return {"error": "Failed to parse JSON response from LLM.", "raw_content": content[:2000]}
 
-    usage = getattr(response, "usage", None)
-    tokens_in = getattr(usage, "prompt_tokens", None) or len(messages[1]["content"]) // 4
-    tokens_out = getattr(usage, "completion_tokens", None) or len(content) // 4
-    cost = _cost_estimate(tokens_in, tokens_out, model)
-
+    cost = _cost_estimate(total_in, total_out, model)
     return _assemble_review(parsed, pr_data, cost)
 
 
@@ -268,6 +289,44 @@ def _cost_estimate(tokens_in: int, tokens_out: int, model: str) -> dict:
         "savings_pct": int((1 - usd / CLAUDE_REVIEW_PRICE) * 10000) / 100,
         "note": "estimated from token counts at typical open-model hosting rates",
     }
+
+
+HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+
+
+def _snippet_for(patch: str, target_line, context: int = 3, max_lines: int = 12):
+    """Extract the diff lines around `target_line` (new-file numbering) from a
+    unified-diff patch. Falls back to the first hunk when no line is given."""
+    if not patch:
+        return None
+    lines = patch.splitlines()
+
+    if target_line is None:
+        snippet = lines[:max_lines]
+        return "\n".join(snippet) if snippet else None
+
+    new_ln = None
+    numbered = []  # (new_line_no or None, text)
+    for text in lines:
+        m = HUNK_RE.match(text)
+        if m:
+            new_ln = int(m.group(1))
+            numbered.append((None, text))
+            continue
+        if new_ln is None:
+            continue
+        if text.startswith("-"):
+            numbered.append((None, text))
+        else:  # context or added line advances new-file numbering
+            numbered.append((new_ln, text))
+            new_ln += 1
+
+    idx = next((i for i, (ln, _) in enumerate(numbered) if ln == target_line), None)
+    if idx is None:
+        return "\n".join(lines[:max_lines]) if lines else None
+    lo = max(0, idx - context)
+    hi = min(len(numbered), idx + context + 1)
+    return "\n".join(t for _, t in numbered[lo:hi][:max_lines])
 
 
 def _extract_json(content: str):
@@ -303,6 +362,12 @@ def _assemble_review(parsed: dict, pr_data: dict, cost: dict = None) -> dict:
     severity_counts = _count_severities(issues)
     # Sort issues most-severe first.
     issues.sort(key=lambda i: SEVERITY_ORDER.index(i.get("severity", "minor")))
+
+    # Attach the relevant diff hunk to each issue so the UI can show the code.
+    patches = pr_data.get("patches", {}) or {}
+    for issue in issues:
+        patch = patches.get(issue.get("file", ""))
+        issue["snippet"] = _snippet_for(patch, issue.get("line")) if patch else None
 
     health, weighted_raw, cap = _compute_health(scores, severity_counts)
     verdict = _decide_verdict(health, severity_counts)

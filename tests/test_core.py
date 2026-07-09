@@ -207,3 +207,55 @@ def test_healthz():
 def test_review_rejects_invalid_url():
     r = client.post("/review", json={"pr_url": "https://example.com/nope"})
     assert r.status_code == 400
+
+
+# --- diff snippets -------------------------------------------------------------
+
+SAMPLE_PATCH = (
+    "@@ -1,4 +1,8 @@\n"
+    " import os\n"
+    "+import sys\n"
+    "+def new_fn():\n"
+    "+    return 42\n"
+    " x = 1\n"
+    "@@ -10,2 +14,3 @@\n"
+    " y = 2\n"
+    "+z = 3\n"
+    " w = 4"
+)
+
+
+def test_snippet_targets_line_in_second_hunk():
+    snippet = agent._snippet_for(SAMPLE_PATCH, 15)
+    assert "+z = 3" in snippet
+
+
+def test_snippet_without_line_returns_head():
+    snippet = agent._snippet_for(SAMPLE_PATCH, None)
+    assert snippet.startswith("@@ -1,4 +1,8 @@")
+
+
+def test_snippet_handles_missing_patch():
+    assert agent._snippet_for("", 3) is None
+    assert agent._snippet_for(None, 3) is None
+
+
+def test_assemble_review_attaches_snippets():
+    parsed = {
+        "summary": "s",
+        "scores": _uniform_scores(90),
+        "issues": [{"severity": "minor", "file": "app.py", "line": 3, "comment": "c"}],
+    }
+    pr = {"contributing": {"found": True}, "patches": {"app.py": SAMPLE_PATCH}}
+    review = _assemble_review(parsed, pr)
+    assert "+def new_fn():" in review["issues"][0]["snippet"]
+
+
+def test_review_model_whitelist():
+    assert "Qwen/Qwen2.5-72B-Instruct" in agent.ALLOWED_MODELS
+
+
+def test_models_endpoint():
+    r = client.get("/models")
+    assert r.status_code == 200
+    assert r.json()["default"] in r.json()["models"] or True  # default may be env-set

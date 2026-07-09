@@ -477,6 +477,8 @@ async def fetch_pr_data(pr_url: str, github_token: str = None) -> dict:
         "files_summary": files_summary,
         "diff": diff,
         "diff_truncated": diff_truncated,
+        # Per-file patches so issues can be shown with their diff hunk inline.
+        "patches": {f["filename"]: f["patch"] for f in diff_candidates[:MAX_DIFF_FILES]},
         "signals": signals,
         "contributing": contributing,
         "issue_link": issue_link,

@@ -32,7 +32,11 @@ For any GitHub PR URL, the agent produces a full review dashboard:
 - **Objective signals** (measured, no LLM): lines +/-, churn, languages, test-to-code ratio, new dependencies parsed from manifests, blast radius (modules touched), CI/migration changes, and risk flags.
 - **Unified severity scale** — `blocker / critical / major / minor / info`, each capping the health score (blocker → ≤39, critical → ≤59, major → ≤84).
 - **Four-tier verdict** — `APPROVE`, `APPROVE_WITH_NITS`, `REQUEST_CHANGES`, `BLOCK`, derived from health score + severity gates.
-- **Issues with fixes** — every issue carries severity, category, file:line, explanation, and a concrete suggestion.
+- **Issues with fixes** — every issue carries severity, category, file:line, explanation, a concrete suggestion, and the **relevant diff hunk inline**.
+- **Copy review as Markdown** — one click produces a formatted review (verdict, scorecard table, process checks, issues) ready to paste as a GitHub PR comment.
+- **Model picker** — choose among whitelisted open models (`Qwen2.5-72B`, `Qwen2.5-Coder-32B`, `Llama-3.3-70B`); arbitrary model ids are rejected server-side.
+- **Resilient parsing** — one automatic retry when the model returns malformed JSON.
+- **Review history** — your recent reviews (repo, PR, score) are kept locally for one-click re-runs.
 
 ## Prerequisites
 

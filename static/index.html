@@ -164,6 +164,36 @@
             border-radius: 8px; color: var(--text-main); font-size: 14px;
         }
         input:focus { outline: none; border-color: var(--accent-2); box-shadow: 0 0 0 3px rgba(88,166,255,0.3); }
+        select {
+            width: 100%; padding: 11px 14px; background-color: var(--input-bg);
+            border: 1px solid var(--border); border-radius: 8px; color: var(--text-main); font-size: 14px;
+        }
+        .history { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+        .history-chip {
+            font-size: 12px; color: var(--text-muted); border: 1px solid var(--border);
+            border-radius: 16px; padding: 3px 12px; cursor: pointer; background: var(--card-bg-2);
+        }
+        .history-chip:hover { border-color: var(--accent-2); color: var(--text-main); }
+        .history-chip .hs { font-weight: 700; }
+
+        /* Diff snippets inside issues */
+        .snippet { margin-top: 8px; }
+        .snippet summary { font-size: 12px; color: var(--accent-2); }
+        .snippet pre {
+            margin: 6px 0 0; padding: 10px 12px; background: #05090d; border: 1px solid var(--border);
+            border-radius: 6px; overflow-x: auto; font-size: 12px; line-height: 1.5;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        }
+        .snippet .dl-add { color: var(--approve); }
+        .snippet .dl-del { color: var(--grade-f); }
+        .snippet .dl-hunk { color: var(--accent-2); }
+
+        .result-actions { display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 14px; }
+        .btn-ghost {
+            background: transparent; color: var(--text-main); border: 1px solid var(--border);
+            font-weight: 600; font-size: 13px; padding: 8px 16px;
+        }
+        .btn-ghost:hover:not(:disabled) { background: var(--card-bg-2); border-color: var(--accent-2); }
         details { margin-bottom: 16px; }
         summary { cursor: pointer; color: var(--text-muted); font-size: 14px; user-select: none; }
         .token-field { margin-top: 10px; }
@@ -387,8 +417,13 @@
                         <label for="github_token">GitHub Token (Optional)</label>
                         <input type="password" id="github_token" placeholder="ghp_... (for private repos or higher rate limits)">
                     </div>
+                    <div class="form-group">
+                        <label for="model_select">Review Model</label>
+                        <select id="model_select"></select>
+                    </div>
                 </details>
                 <button id="submitBtn" onclick="submitReview()">Review PR</button>
+                <div id="history" class="history"></div>
             </div>
 
             <div id="loading" class="loader-container">
@@ -419,6 +454,36 @@
         };
         const SEVS = ['blocker', 'critical', 'major', 'minor', 'info'];
         let stepTimer = null;
+        let lastReview = null;  // last successful payload, for Copy as Markdown
+
+        // --- model picker + history --------------------------------------
+        async function loadModels() {
+            try {
+                const r = await fetch('/models');
+                const d = await r.json();
+                const sel = document.getElementById('model_select');
+                sel.innerHTML = d.models.map(m =>
+                    `<option value="${esc(m)}" ${m === d.default ? 'selected' : ''}>${esc(m)}</option>`).join('');
+            } catch (e) { /* model picker is optional */ }
+        }
+
+        function getHistory() {
+            try { return JSON.parse(localStorage.getItem('rc_history') || '[]'); } catch { return []; }
+        }
+        function pushHistory(entry) {
+            const h = getHistory().filter(e => e.url !== entry.url);
+            h.unshift(entry);
+            localStorage.setItem('rc_history', JSON.stringify(h.slice(0, 6)));
+            renderHistory();
+        }
+        function renderHistory() {
+            const h = getHistory();
+            document.getElementById('history').innerHTML = h.map(e =>
+                `<span class="history-chip" onclick="document.getElementById('pr_url').value='${esc(e.url)}'; submitReview()">
+                    ${esc(e.repo)}#${esc(e.num)} · <span class="hs" style="color:${GRADE_COLOR[e.grade] || 'inherit'}">${e.score}</span>
+                </span>`).join('');
+        }
+        window.addEventListener('DOMContentLoaded', () => { loadModels(); renderHistory(); });
 
         function startPipelineAnim() {
             const steps = [...document.querySelectorAll('.pl-step')];
@@ -449,13 +514,20 @@
             startPipelineAnim();
 
             try {
+                const model = document.getElementById('model_select')?.value || null;
                 const response = await fetch('/review', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pr_url: prUrl, github_token: githubToken || null })
+                    body: JSON.stringify({ pr_url: prUrl, github_token: githubToken || null, model })
                 });
                 const data = await response.json();
-                if (response.ok) { displayReview(data); }
+                if (response.ok) {
+                    displayReview(data);
+                    lastReview = { ...data, pr_url: prUrl };
+                    const m = prUrl.match(/github\.com\/[^/]+\/([^/]+)\/pull\/(\d+)/);
+                    if (m) pushHistory({ url: prUrl, repo: m[1], num: m[2],
+                        score: data.review.health_score, grade: data.review.health_grade });
+                }
                 else { resultDiv.innerHTML = `<div class="error"><strong>Error:</strong> ${esc(data.detail || 'Unknown error')}</div>`; }
             } catch (error) {
                 resultDiv.innerHTML = `<div class="error"><strong>Network Error:</strong> ${esc(error.message)}</div>`;
@@ -473,7 +545,10 @@
             const sig = data.signals || {};
             let html = '';
 
-            html += costBanner(rev.cost);
+            html += `<div class="result-actions">
+                <button class="btn-ghost" onclick="copyMarkdown(this)">📋 Copy review as Markdown</button>
+            </div>`;
+            html += costBanner(rev.cost, rev.duration_ms);
             html += heroBlock(meta, rev);
             html += processBlock(rev.process, rev.guideline);
             html += metaSignalsBlock(meta, sig);
@@ -487,17 +562,83 @@
             document.getElementById('result').innerHTML = html;
         }
 
-        function costBanner(cost) {
+        function costBanner(cost, durationMs) {
             if (!cost) return '';
             const usd = cost.usd < 0.01 ? '$' + cost.usd.toFixed(4) : '$' + cost.usd.toFixed(2);
+            const dur = durationMs ? ` · ${(durationMs / 1000).toFixed(1)}s` : '';
             return `
             <div class="cost-banner">
                 <div>
                     <span class="big">This review cost ~${usd}</span>
                     &nbsp;<span class="strike">$${cost.claude_price_usd} with Claude</span>
                 </div>
-                <div class="meta-sm">${cost.tokens_in.toLocaleString()} in / ${cost.tokens_out.toLocaleString()} out tokens · ${esc(cost.model)} · you saved ${cost.savings_pct}%</div>
+                <div class="meta-sm">${cost.tokens_in.toLocaleString()} in / ${cost.tokens_out.toLocaleString()} out tokens · ${esc(cost.model)}${dur} · you saved ${cost.savings_pct}%</div>
             </div>`;
+        }
+
+        function renderSnippet(snippet) {
+            if (!snippet) return '';
+            const colored = snippet.split('\n').map(l => {
+                const e = esc(l);
+                if (l.startsWith('@@')) return `<span class="dl-hunk">${e}</span>`;
+                if (l.startsWith('+')) return `<span class="dl-add">${e}</span>`;
+                if (l.startsWith('-')) return `<span class="dl-del">${e}</span>`;
+                return e;
+            }).join('\n');
+            return `<details class="snippet"><summary>View diff</summary><pre>${colored}</pre></details>`;
+        }
+
+        function copyMarkdown(btn) {
+            if (!lastReview) return;
+            const md = buildMarkdown(lastReview);
+            navigator.clipboard.writeText(md).then(() => {
+                btn.textContent = '✅ Copied — paste into a PR comment';
+                setTimeout(() => { btn.textContent = '📋 Copy review as Markdown'; }, 2500);
+            });
+        }
+
+        function buildMarkdown(data) {
+            const rev = data.review, meta = data.metadata, sig = data.signals || {};
+            const v = (VERDICT_META[rev.verdict] || {});
+            const lines = [];
+            lines.push(`## ${v.icon || ''} PR Review — Health ${rev.health_score}/100 (${rev.health_grade}) · ${(v.label || rev.verdict)}`);
+            lines.push('');
+            lines.push(`> ${rev.verdict_reason}`);
+            lines.push('');
+            if (rev.summary) { lines.push(rev.summary); lines.push(''); }
+            lines.push('| Dimension | Weight | Score | Grade |');
+            lines.push('|---|---|---|---|');
+            (rev.scorecard || []).forEach(d => {
+                lines.push(`| ${d.label} | ${Math.round(d.weight * 100)}% | ${d.score ?? '—'} | ${d.grade} |`);
+            });
+            lines.push('');
+            const proc = rev.process || {};
+            lines.push(`**Process:** CONTRIBUTING.md ${proc.contributing_found ? '✅' : '⚠️ not found'} · ` +
+                `linked issue ${proc.has_linked_issue ? '✅ ' + (proc.issues || []).map(i => '#' + i.number).join(', ') : '⚠️ none'} · ` +
+                `author assigned ${proc.has_linked_issue ? (proc.author_assigned ? '✅' : '⚠️ no') : '—'}`);
+            lines.push('');
+            if ((rev.issues || []).length) {
+                lines.push(`### Issues (${rev.issues.length})`);
+                rev.issues.forEach(it => {
+                    const loc = it.file ? ` — \`${it.file}${it.line ? ':' + it.line : ''}\`` : '';
+                    lines.push(`- **${(it.severity || '').toUpperCase()}** [${it.category || 'general'}]${loc}: ${it.comment}` +
+                        (it.suggestion ? ` _Fix: ${it.suggestion}_` : ''));
+                });
+                lines.push('');
+            }
+            if ((rev.guideline?.violations || []).length) {
+                lines.push('### Guideline violations');
+                rev.guideline.violations.forEach(g => lines.push(`- ${g}`));
+                lines.push('');
+            }
+            if ((rev.highlights || []).length) {
+                lines.push('### Strengths');
+                rev.highlights.forEach(h => lines.push(`- ${h}`));
+                lines.push('');
+            }
+            const cost = rev.cost;
+            if (cost) lines.push(`---\n_Review by [ReviewCheap](https://github.com/himanshu748/pr-review-agent) · ${cost.model} · ~$${cost.usd} (vs $${cost.claude_price_usd} with Claude)_`);
+            return lines.join('\n');
         }
 
         function processBlock(proc, guideline) {
@@ -643,6 +784,7 @@
                         <span class="issue-file">${esc(it.file || 'general')}${line}</span>
                     </div>
                     <div class="issue-comment">${esc(it.comment || '')}</div>
+                    ${renderSnippet(it.snippet)}
                     ${fix}
                 </div>`;
             });
