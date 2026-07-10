@@ -1,6 +1,6 @@
 # ReviewCheap — AI PR Review Agent
 
-Senior-grade, metrics-driven PR reviews on **open models** for **less than a cent per review** — Claude charges **$25 per PR review** for the same job. Built with FastAPI and powered by Hugging Face's Inference API; every review displays its actual token cost next to the $25 anchor.
+Senior-grade, metrics-driven PR reviews powered by **GPT-5.6**. Built with FastAPI and OpenAI's Responses API; every review displays token usage and standard list cost, while eligible data-sharing traffic can use complimentary daily tokens.
 
 ## Review pipeline (process-first)
 
@@ -34,14 +34,14 @@ For any GitHub PR URL, the agent produces a full review dashboard:
 - **Four-tier verdict** — `APPROVE`, `APPROVE_WITH_NITS`, `REQUEST_CHANGES`, `BLOCK`, derived from health score + severity gates.
 - **Issues with fixes** — every issue carries severity, category, file:line, explanation, a concrete suggestion, and the **relevant diff hunk inline**.
 - **Copy review as Markdown** — one click produces a formatted review (verdict, scorecard table, process checks, issues) ready to paste as a GitHub PR comment.
-- **Model picker** — choose among whitelisted open models (`Qwen2.5-72B`, `Qwen2.5-Coder-32B`, `Llama-3.3-70B`); arbitrary model ids are rejected server-side.
+- **Model picker** — choose among whitelisted GPT-5.6 models: Terra for the best quality/cost balance, Luna for high-volume reviews, or Sol for the hardest reviews. Arbitrary model ids are rejected server-side.
 - **Resilient parsing** — one automatic retry when the model returns malformed JSON.
 - **Review history** — your recent reviews (repo, PR, score) are kept locally for one-click re-runs.
 
 ## Prerequisites
 
 - Python 3.9+
-- A Hugging Face account and API token
+- An OpenAI API account and API key
 - A GitHub token (optional — for private repos and higher rate limits)
 
 ## Setup & Installation
@@ -59,9 +59,9 @@ For any GitHub PR URL, the agent produces a full review dashboard:
 
 3. **Configure environment variables** in a `.env` file:
    ```env
-   HF_TOKEN=your_huggingface_token_here
+   OPENAI_API_KEY=your_openai_api_key_here
    GITHUB_TOKEN=your_github_token_here_optional
-   HF_MODEL=Qwen/Qwen2.5-72B-Instruct   # optional override
+   OPENAI_MODEL=gpt-5.6-terra   # optional: terra, luna, or sol
    ```
 
 ## Usage
@@ -113,7 +113,7 @@ Liveness + whether an HF token is configured.
 ## Technology Stack
 
 - **Backend:** FastAPI, Uvicorn, httpx
-- **AI/LLM:** Hugging Face Inference API (`Qwen/Qwen2.5-72B-Instruct` by default, override with `HF_MODEL`)
+- **AI/LLM:** OpenAI Responses API (`gpt-5.6-terra` by default, override with `OPENAI_MODEL`)
 - **Frontend:** Pure HTML/CSS/JavaScript (no external UI libraries)
 
 ## License

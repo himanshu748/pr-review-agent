@@ -43,15 +43,17 @@ async def read_root():
 
 @app.get("/healthz")
 async def healthz():
-    token = os.getenv("HF_TOKEN")
-    configured = bool(token) and token != "your_huggingface_token_here"
-    return {"status": "ok", "hf_token_configured": configured}
+    token = os.getenv("OPENAI_API_KEY")
+    configured = bool(token) and token != "your_openai_api_key_here"
+    return {"status": "ok", "openai_api_key_configured": configured}
 
 
 @app.get("/models")
 async def models():
     from agent import ALLOWED_MODELS, DEFAULT_MODEL
-    return {"models": ALLOWED_MODELS, "default": os.getenv("HF_MODEL", DEFAULT_MODEL)}
+    configured = os.getenv("OPENAI_MODEL", DEFAULT_MODEL)
+    default = configured if configured in ALLOWED_MODELS else DEFAULT_MODEL
+    return {"models": ALLOWED_MODELS, "default": default}
 
 
 @app.post("/review")

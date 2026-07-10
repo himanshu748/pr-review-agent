@@ -201,7 +201,7 @@ def test_root_serves_ui():
 def test_healthz():
     r = client.get("/healthz")
     assert r.status_code == 200
-    assert "hf_token_configured" in r.json()
+    assert "openai_api_key_configured" in r.json()
 
 
 def test_review_rejects_invalid_url():
@@ -252,10 +252,35 @@ def test_assemble_review_attaches_snippets():
 
 
 def test_review_model_whitelist():
-    assert "Qwen/Qwen2.5-72B-Instruct" in agent.ALLOWED_MODELS
+    assert agent.DEFAULT_MODEL == "gpt-5.6-terra"
+    assert agent.ALLOWED_MODELS == ["gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol"]
 
 
 def test_models_endpoint():
     r = client.get("/models")
     assert r.status_code == 200
-    assert r.json()["default"] in r.json()["models"] or True  # default may be env-set
+    assert r.json()["default"] in r.json()["models"]
+
+
+@pytest.mark.asyncio
+async def test_review_requires_openai_key(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    result = await agent.review_pr({})
+    assert result == {"error": "OPENAI_API_KEY is not set in .env"}
+
+
+@pytest.mark.asyncio
+async def test_provider_error_does_not_leak_raw_exception(monkeypatch):
+    class FailingResponses:
+        async def create(self, **kwargs):
+            raise RuntimeError("upstream leaked sk-sensitive-value")
+
+    class FailingClient:
+        def __init__(self, **kwargs):
+            self.responses = FailingResponses()
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(agent, "AsyncOpenAI", FailingClient)
+    result = await agent.review_pr({})
+    assert result == {"error": "OpenAI request failed. Check API configuration and try again."}
+    assert "sensitive" not in result["error"]

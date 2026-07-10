@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ReviewCheap — senior-grade PR reviews for pennies</title>
-    <meta name="description" content="Metrics-driven AI pull-request reviews grounded in your repo's CONTRIBUTING.md. Claude charges $25 per PR review — we do it with open models for less than a cent.">
+    <meta name="description" content="Metrics-driven GPT-5.6 pull-request reviews grounded in your repo's CONTRIBUTING.md.">
     <style>
         :root {
             --bg-color: #0d1117;
@@ -344,12 +344,12 @@
 
         <!-- Landing hero -->
         <section class="hero-landing">
-            <span class="eyebrow">Open models · Same rigor · 2500× cheaper</span>
-            <h1 class="headline">Senior-grade PR reviews<br>for <span class="grad">less than a cent</span></h1>
+            <span class="eyebrow">GPT-5.6 · Metrics-driven · Repository-grounded</span>
+            <h1 class="headline">Senior-grade PR reviews<br>with <span class="grad">GPT-5.6</span></h1>
             <p class="subhead">
-                Claude charges <strong>$25 per PR review</strong>. We run the same metrics-driven review
-                pipeline on open models — grounded in <strong>your repo's CONTRIBUTING.md</strong>,
-                verified against <strong>linked issues &amp; assignees</strong> — for <strong>~$0.01</strong>.
+                A metrics-driven review grounded in <strong>your repo's CONTRIBUTING.md</strong>,
+                verified against <strong>linked issues &amp; assignees</strong>, with transparent token usage
+                and GPT-5.6 models optimized for quality or volume.
             </p>
             <div class="cta-row">
                 <a class="cta-primary" href="#tool">Review a PR free</a>
@@ -365,11 +365,11 @@
                 </div>
                 <div class="vs">VS</div>
                 <div class="price-card us">
-                    <span class="save-badge">SAVE 99.96%</span>
+                    <span class="save-badge">GPT-5.6</span>
                     <div class="who">ReviewCheap</div>
-                    <div class="amount">~$0.01</div>
-                    <div class="per">per PR review</div>
-                    <div class="detail">Open 72B-class model + deterministic scoring. Cost shown on every review.</div>
+                    <div class="amount">Terra</div>
+                    <div class="per">default review model</div>
+                    <div class="detail">Deterministic scoring with token usage and standard list cost shown on every review.</div>
                 </div>
             </div>
         </section>
@@ -439,8 +439,8 @@
         </section>
 
         <footer>
-            ReviewCheap — metrics-driven PR review on open models.
-            Built with FastAPI + Hugging Face Inference. MIT licensed.
+            ReviewCheap — metrics-driven PR review with GPT-5.6.
+            Built with FastAPI + OpenAI Responses API. MIT licensed.
         </footer>
     </div>
 
@@ -569,10 +569,10 @@
             return `
             <div class="cost-banner">
                 <div>
-                    <span class="big">This review cost ~${usd}</span>
+                    <span class="big">Standard list cost ~${usd}</span>
                     &nbsp;<span class="strike">$${cost.claude_price_usd} with Claude</span>
                 </div>
-                <div class="meta-sm">${cost.tokens_in.toLocaleString()} in / ${cost.tokens_out.toLocaleString()} out tokens · ${esc(cost.model)}${dur} · you saved ${cost.savings_pct}%</div>
+                <div class="meta-sm">${cost.tokens_in.toLocaleString()} in / ${cost.tokens_out.toLocaleString()} out tokens · ${esc(cost.model)}${dur} · eligible complimentary usage may be charged $0</div>
             </div>`;
         }
 

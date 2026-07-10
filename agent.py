@@ -13,24 +13,27 @@ import re
 import json
 
 from dotenv import load_dotenv
-from huggingface_hub import AsyncInferenceClient
+from openai import AsyncOpenAI
 
 load_dotenv()
 
-DEFAULT_MODEL = "Qwen/Qwen2.5-72B-Instruct"
+DEFAULT_MODEL = "gpt-5.6-terra"
 
 # Models the UI may select. Whitelist — an arbitrary user-supplied model id is
 # never passed through to the inference API.
 ALLOWED_MODELS = [
-    "Qwen/Qwen2.5-72B-Instruct",
-    "Qwen/Qwen2.5-Coder-32B-Instruct",
-    "meta-llama/Llama-3.3-70B-Instruct",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-5.6-sol",
 ]
 
-# Rough open-model inference pricing for the cost-per-review estimate (USD per
-# 1M tokens; typical hosted rates for a 72B-class open model). Estimates only.
-PRICE_IN_PER_M = 0.40
-PRICE_OUT_PER_M = 0.80
+# OpenAI standard prices per 1M tokens. Complimentary data-sharing usage may
+# reduce the actual charged amount to zero; the UI labels this as list cost.
+MODEL_PRICES = {
+    "gpt-5.6-sol": (5.00, 30.00),
+    "gpt-5.6-terra": (2.50, 15.00),
+    "gpt-5.6-luna": (1.00, 6.00),
+}
 CLAUDE_REVIEW_PRICE = 25.0  # what Claude charges per PR review — our USP anchor
 
 # --- Metrics framework ----------------------------------------------------
@@ -233,13 +236,15 @@ info = nit. Be precise and avoid false positives. Every score must be justified 
 
 
 async def review_pr(pr_data: dict, model: str = None) -> dict:
-    hf_token = os.getenv("HF_TOKEN")
-    if not hf_token or hf_token == "your_huggingface_token_here":
-        return {"error": "HF_TOKEN is not set in .env"}
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key or api_key == "your_openai_api_key_here":
+        return {"error": "OPENAI_API_KEY is not set in .env"}
 
     if model not in ALLOWED_MODELS:
-        model = os.getenv("HF_MODEL", DEFAULT_MODEL)
-    client = AsyncInferenceClient(token=hf_token)
+        model = os.getenv("OPENAI_MODEL", DEFAULT_MODEL)
+    if model not in ALLOWED_MODELS:
+        model = DEFAULT_MODEL
+    client = AsyncOpenAI(api_key=api_key)
 
     messages = [
         {"role": "system", "content": "You are a senior software engineer performing a thorough, metrics-driven PR review. You return only valid JSON."},
@@ -251,14 +256,19 @@ async def review_pr(pr_data: dict, model: str = None) -> dict:
     content = ""
     for attempt in range(2):
         try:
-            response = await client.chat_completion(model=model, messages=messages, max_tokens=3000, temperature=0.2)
-            content = response.choices[0].message.content.strip()
-        except Exception as e:
-            return {"error": f"LLM error: {str(e)}"}
+            response = await client.responses.create(
+                model=model,
+                input=messages,
+                max_output_tokens=3000,
+                reasoning={"effort": "medium"},
+            )
+            content = response.output_text.strip()
+        except Exception:
+            return {"error": "OpenAI request failed. Check API configuration and try again."}
 
         usage = getattr(response, "usage", None)
-        total_in += getattr(usage, "prompt_tokens", None) or len(messages[-1]["content"]) // 4
-        total_out += getattr(usage, "completion_tokens", None) or len(content) // 4
+        total_in += getattr(usage, "input_tokens", None) or len(messages[-1]["content"]) // 4
+        total_out += getattr(usage, "output_tokens", None) or len(content) // 4
 
         parsed = _extract_json(content)
         if parsed is not None:
@@ -277,7 +287,8 @@ async def review_pr(pr_data: dict, model: str = None) -> dict:
 
 
 def _cost_estimate(tokens_in: int, tokens_out: int, model: str) -> dict:
-    usd = tokens_in / 1e6 * PRICE_IN_PER_M + tokens_out / 1e6 * PRICE_OUT_PER_M
+    price_in, price_out = MODEL_PRICES.get(model, MODEL_PRICES[DEFAULT_MODEL])
+    usd = tokens_in / 1e6 * price_in + tokens_out / 1e6 * price_out
     usd = round(max(usd, 0.0001), 4)
     return {
         "model": model,
@@ -287,7 +298,7 @@ def _cost_estimate(tokens_in: int, tokens_out: int, model: str) -> dict:
         "claude_price_usd": CLAUDE_REVIEW_PRICE,
         # floor, not round — 99.9968% must show 99.99%, never a false "100%"
         "savings_pct": int((1 - usd / CLAUDE_REVIEW_PRICE) * 10000) / 100,
-        "note": "estimated from token counts at typical open-model hosting rates",
+        "note": "standard list cost; eligible complimentary tokens may make the charged cost $0",
     }
 
 
