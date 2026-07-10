@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: pr-review-agent
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: master
+    autoDeploy: true
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    envVars:
+      - key: OPENAI_MODEL
+        value: gpt-5.6-terra
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false

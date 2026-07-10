@@ -73,6 +73,10 @@ For any GitHub PR URL, the agent produces a full review dashboard:
 
 2. **Open** `http://127.0.0.1:8000`, paste a PR URL (e.g. `https://github.com/fastapi/fastapi/pull/1`), and click **Review PR**.
 
+## Deploy to Render
+
+The included `render.yaml` provisions a free Docker web service in Render's Singapore region. Create a Blueprint from this repository, then provide `OPENAI_API_KEY` and optionally `GITHUB_TOKEN` when Render prompts for secret environment variables. Pushes to `master` deploy automatically.
+
 ## API
 
 ### `POST /review`

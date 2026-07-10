@@ -7,7 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# HF Spaces uses 7860; override PORT for other hosts.
+# Render injects PORT at runtime; 7860 remains a convenient local default.
 ENV PORT=7860
 EXPOSE 7860
 
