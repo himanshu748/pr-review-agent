@@ -20,9 +20,9 @@ TOOLS = [
     {
         "name": "review_pr",
         "description": (
-            "Full senior-grade review of a GitHub pull request on open models for under a "
-            "cent. Reads the repo's CONTRIBUTING.md first and grades the PR against the "
-            "project's own rules, verifies linked-issue assignment, measures the diff "
+            "Full senior-grade review of a GitHub pull request at a fraction of the ~$25 a "
+            "frontier-model review costs. Reads the repo's CONTRIBUTING.md first and grades "
+            "the PR against the project's own rules, verifies linked-issue assignment, measures the diff "
             "objectively (churn, test-to-code ratio, new dependencies, blast radius), then "
             "scores 8 weighted dimensions (correctness, security, testing, reliability, "
             "maintainability, guideline compliance, performance, docs). Returns a 0-100 "
@@ -65,7 +65,7 @@ def _text(payload, is_error=False):
 async def _call_tool(name, args):
     if name == "list_models":
         return _text({"models": ALLOWED_MODELS,
-                      "default": os.getenv("HF_MODEL", DEFAULT_MODEL)})
+                      "default": os.getenv("OPENAI_MODEL", DEFAULT_MODEL)})
 
     if name == "review_pr":
         started = time.monotonic()
