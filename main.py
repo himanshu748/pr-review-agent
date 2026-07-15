@@ -3,9 +3,9 @@
 import os
 import time
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -34,6 +34,25 @@ class PRRequest(BaseModel):
     pr_url: str
     github_token: Optional[str] = None
     model: Optional[str] = None  # must be in agent.ALLOWED_MODELS, else default
+
+
+@app.post("/mcp")
+async def mcp(request: Request):
+    """MCP Streamable HTTP endpoint (OKX.AI A2MCP free service)."""
+    import mcp_server
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+    response = await mcp_server.handle(payload)
+    if response is None:
+        return Response(status_code=202)
+    return response
+
+
+@app.get("/mcp")
+async def mcp_get():
+    raise HTTPException(status_code=405, detail="POST JSON-RPC 2.0 messages to this endpoint")
 
 
 @app.get("/")
